@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
+import { Wordmark } from "../components/Wordmark";
 import { AppleIcon, GoogleIcon } from "../components/icons";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
@@ -66,6 +67,8 @@ export default function SignInScreen() {
   return (
     <ModalShell>
       <CloseButton className="self-start" />
+
+      <Wordmark height={24} />
 
       <div className="flex flex-col gap-1.5">
         <div className="font-display text-[26px] text-ink">SIGN IN</div>

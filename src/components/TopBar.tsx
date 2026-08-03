@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { AccountButton } from "./AccountButton";
 import { ThemeToggleButton } from "./ThemeToggleButton";
+import { Wordmark } from "./Wordmark";
 import { BarChartIcon, ListIcon, MapPinIcon, PlusIcon } from "./icons";
 
 const navItemClasses =
@@ -24,9 +25,7 @@ export function TopBar({ itineraryCount = 0 }: TopBarProps) {
   return (
     <div className="hidden flex-none items-center justify-between border-b border-line bg-bg px-8 py-3.5 lg:flex">
       <div className="flex items-center gap-10">
-        <span className="font-display text-xl tracking-[0.02em] text-ink">
-          MUSTER
-        </span>
+        <Wordmark height={24} />
         <nav aria-label="Primary" className="flex items-center gap-7">
           <NavLink
             to="/"

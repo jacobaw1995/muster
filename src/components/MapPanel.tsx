@@ -6,6 +6,7 @@ import type { LocationStatus } from "../lib/geolocation";
 import { getCategoryMeta, type MusterEvent } from "../lib/mockEvents";
 import { useTheme } from "../theme/ThemeContext";
 import { AlertIcon, MapPinOffIcon, NearMeIcon } from "./icons";
+import { Mark } from "./Mark";
 
 export type MapDemoState = "live" | "loading" | "empty" | "error";
 
@@ -206,8 +207,8 @@ export function MapPanel({
       <div ref={containerRef} className="absolute inset-0" />
 
       {demoState === "loading" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-bg">
-          <div className="h-[30px] w-[30px] animate-[spin_0.8s_linear_infinite] rounded-full border-[3px] border-line border-t-accent" />
+        <div className="absolute inset-0 z-[500] flex flex-col items-center justify-center gap-2.5 bg-bg">
+          <Mark size={36} className="animate-[pulse_1.4s_ease-in-out_infinite]" />
           <div className="font-mono text-[11px] font-semibold tracking-[0.08em] text-ink-dim">
             LOCATING EVENTS…
           </div>
@@ -215,7 +216,7 @@ export function MapPanel({
       )}
 
       {demoState === "error" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg px-[30px] text-center">
+        <div className="absolute inset-0 z-[500] flex flex-col items-center justify-center gap-2 bg-bg px-[30px] text-center">
           <AlertIcon className="text-danger" />
           <div className="font-sans text-[13px] font-bold text-ink">
             Couldn't load the map
@@ -227,7 +228,7 @@ export function MapPanel({
       )}
 
       {demoState === "empty" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg px-[30px] text-center">
+        <div className="absolute inset-0 z-[500] flex flex-col items-center justify-center gap-2 bg-bg px-[30px] text-center">
           <MapPinOffIcon className="text-ink-dim" />
           <div className="font-sans text-[13px] font-bold text-ink">
             Nothing happening nearby

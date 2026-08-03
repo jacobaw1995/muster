@@ -5,6 +5,7 @@ import { FilterSheet } from "../components/FilterSheet";
 import { FilterIcon, SearchIcon } from "../components/icons";
 import { MapPanel, type MapDemoState } from "../components/MapPanel";
 import { PhotoSlot } from "../components/PhotoSlot";
+import { Wordmark } from "../components/Wordmark";
 import { eventDistanceMi } from "../lib/distance";
 import { RADIUS_OPTIONS, filterEvents, hasActiveFilters } from "../lib/filterEvents";
 import { fmtCityState, fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
@@ -181,10 +182,8 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
       {/* Mobile (<1024px): this column must actually fill the remaining viewport height (flex-1 min-h-0) — not just size to content — or the list's own flex-1/overflow-y-auto below has no bounded parent to scroll within, and the whole page grows/scrolls instead (Phase 11 bug fix). Desktop (>=1024px): left rail — search/filters/list, scrolls as one unit, sized to a fixed column width instead. */}
       <div className="flex min-h-0 flex-1 flex-col lg:w-[420px] lg:flex-none lg:overflow-y-auto lg:border-r lg:border-line">
       <div className="flex flex-none flex-col gap-2.5 px-screen pb-3 pt-1.5">
-        <div className="flex items-baseline justify-between lg:hidden">
-          <div className="font-display text-2xl tracking-[0.02em] text-ink">
-            MUSTER
-          </div>
+        <div className="flex items-center justify-between lg:hidden">
+          <Wordmark height={22} />
           <div className="font-mono text-[10px] font-semibold tracking-[0.12em] text-accent">
             {filteredEvents.length} EVENTS
           </div>
