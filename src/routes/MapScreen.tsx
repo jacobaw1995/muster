@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ErrorState } from "../components/ErrorState";
 import { FilterSheet } from "../components/FilterSheet";
@@ -7,13 +7,23 @@ import { MapPanel, type MapDemoState } from "../components/MapPanel";
 import { PhotoSlot } from "../components/PhotoSlot";
 import { eventDistanceMi } from "../lib/distance";
 import { RADIUS_OPTIONS, filterEvents, hasActiveFilters } from "../lib/filterEvents";
-import { fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
+import { fmtCityState, fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
 import {
   getCategoryMeta,
   withRsvpCounts,
   type MusterEvent,
 } from "../lib/mockEvents";
 import { useSession } from "../state/SessionContext";
+
+/** Mobile-only Map/List view choice, persisted across visits (Phase 11) — same read-lazily-then-sync-on-change pattern as ThemeContext. Desktop ignores this: its own two-pane layout always shows both. */
+type ViewMode = "map" | "list";
+const VIEW_MODE_KEY = "muster:map-view";
+
+function readStoredViewMode(): ViewMode {
+  if (typeof window === "undefined") return "map";
+  const stored = window.localStorage.getItem(VIEW_MODE_KEY);
+  return stored === "list" ? "list" : "map";
+}
 
 /**
  * Prototype-only affordance for reviewing the 4 designed data states (see
@@ -53,15 +63,16 @@ function EventListRow({
         />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 truncate">
           <span
-            className="font-mono text-[9.5px] font-bold tracking-[0.08em]"
+            className="flex-none font-mono text-[9.5px] font-bold tracking-[0.08em]"
             style={{ color: `var(${meta.cssVar})` }}
           >
             {meta.label}
           </span>
-          <span className="font-mono text-[9.5px] font-semibold text-ink-dim">
-            · {fmtDistance(distanceMi)}
+          <span className="truncate font-mono text-[9.5px] font-semibold text-ink-dim">
+            · {fmtCityState(event)}
+            {distanceMi != null && ` · ${fmtDistance(distanceMi)}`}
           </span>
         </div>
         <div className="truncate font-sans text-sm font-bold text-ink">
@@ -113,6 +124,11 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
   } = useSession();
   const [demoState, setDemoState] = useState<MapDemoState>("live");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
+
+  useEffect(() => {
+    window.localStorage.setItem(VIEW_MODE_KEY, viewMode);
+  }, [viewMode]);
 
   const filteredEvents = useMemo(
     () => filterEvents(events, filters, userLocation),
@@ -162,8 +178,8 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden">
-      {/* Desktop (>=1024px): left rail — search/filters/list, scrolls as one unit. Below that breakpoint this is just the normal single-column page. */}
-      <div className="flex min-h-0 flex-none flex-col lg:w-[420px] lg:flex-none lg:overflow-y-auto lg:border-r lg:border-line">
+      {/* Mobile (<1024px): this column must actually fill the remaining viewport height (flex-1 min-h-0) — not just size to content — or the list's own flex-1/overflow-y-auto below has no bounded parent to scroll within, and the whole page grows/scrolls instead (Phase 11 bug fix). Desktop (>=1024px): left rail — search/filters/list, scrolls as one unit, sized to a fixed column width instead. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:w-[420px] lg:flex-none lg:overflow-y-auto lg:border-r lg:border-line">
       <div className="flex flex-none flex-col gap-2.5 px-screen pb-3 pt-1.5">
         <div className="flex items-baseline justify-between lg:hidden">
           <div className="font-display text-2xl tracking-[0.02em] text-ink">
@@ -200,6 +216,32 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
           </button>
         </div>
 
+        <div
+          role="tablist"
+          aria-label="View"
+          className="flex gap-1.5 rounded-button border border-line bg-card p-1 lg:hidden"
+        >
+          {(
+            [
+              { key: "map", label: "MAP" },
+              { key: "list", label: "LIST" },
+            ] as const
+          ).map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              role="tab"
+              aria-selected={viewMode === v.key}
+              onClick={() => setViewMode(v.key)}
+              className={`flex-1 rounded-[9px] border-none p-2 font-sans text-xs font-bold ${
+                viewMode === v.key ? "bg-accent text-accent-on" : "text-ink-dim"
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+
         {DEV_STATE_SWITCHER && (
           <div className="flex gap-1.5" aria-hidden>
             {(
@@ -227,10 +269,13 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
         )}
       </div>
 
-      {/* Mobile: inline map between the header and the list. Hidden on desktop, where the map moves to the fill pane below instead. */}
-      <MapPanel {...mapPanelProps} className="lg:hidden" />
+      {/* Mobile: inline map between the header and the list — hidden entirely in List view (Phase 11), and hidden on desktop, where the map moves to the fill pane below instead. */}
+      <MapPanel
+        {...mapPanelProps}
+        className={viewMode === "list" ? "hidden" : "lg:hidden"}
+      />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[14px] pb-[90px] lg:flex-none lg:overflow-visible lg:pb-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-[14px] pb-[90px] lg:flex-none lg:overflow-visible lg:pb-5">
         <div className="px-0.5 font-mono text-[10px] font-semibold tracking-[0.12em] text-ink-dim">
           UPCOMING NEAR YOU
         </div>

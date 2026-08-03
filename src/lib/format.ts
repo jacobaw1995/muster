@@ -26,6 +26,17 @@ export function fmtVenueLine(event: {
   return "Location TBD";
 }
 
+/** "City, State" for the Map list cards' primary location line (Phase 11) — independent of the organizer-entered venue name, so a card always shows WHERE before the specific spot. Never renders "null". */
+export function fmtCityState(event: {
+  city: string | null;
+  state: string | null;
+}): string {
+  if (event.city && event.state) return `${event.city}, ${event.state}`;
+  if (event.city) return event.city;
+  if (event.state) return event.state;
+  return "Location TBD";
+}
+
 /** Converts a raw <input type="time"> value ("HH:MM", 24h) into a display-ready string ("5:30 PM"). */
 export function formatTimeOfDay(raw: string): string {
   const [hStr, mStr] = raw.split(":");
