@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
-import { OtpStep } from "../components/OtpStep";
 import { AppleIcon, GoogleIcon } from "../components/icons";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
@@ -10,20 +10,14 @@ const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function SignInScreen() {
-  const navigate = useNavigate();
-  const { requestOtp, verifyOtp, linkOAuth } = useSession();
+  const { requestMagicLink, linkOAuth } = useSession();
   const { showToast } = useToast();
-  const [contact, setContact] = useState("");
-  const [step, setStep] = useState<"contact" | "otp">("contact");
+  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<"email" | "sent">("email");
   const [requesting, setRequesting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(
     null,
   );
-
-  const finishSignIn = () => {
-    navigate("/");
-    showToast("Signed in");
-  };
 
   const handleOAuth = async (provider: "google" | "apple") => {
     setOauthLoading(provider);
@@ -33,7 +27,7 @@ export default function SignInScreen() {
     } catch (err) {
       console.error(err);
       showToast(
-        `${provider === "google" ? "Google" : "Apple"} sign-in isn't set up yet — try email or phone.`,
+        `${provider === "google" ? "Google" : "Apple"} sign-in isn't set up yet — try email.`,
       );
     } finally {
       setOauthLoading(null);
@@ -41,34 +35,28 @@ export default function SignInScreen() {
   };
 
   const handleContinue = async () => {
-    const trimmed = contact.trim();
+    const trimmed = email.trim();
     if (!trimmed || requesting) return;
     setRequesting(true);
     try {
-      await requestOtp(trimmed);
-      setStep("otp");
+      await requestMagicLink(trimmed);
+      setStep("sent");
     } catch (err) {
       console.error(err);
-      showToast("Couldn't send a code — check the address and try again.");
+      showToast("Couldn't send the link — check the address and try again.");
     } finally {
       setRequesting(false);
     }
   };
 
-  const handleVerify = async (code: string) => {
-    await verifyOtp(contact.trim(), code);
-    finishSignIn();
-  };
+  const handleResend = () => requestMagicLink(email.trim());
 
-  const handleResend = () => requestOtp(contact.trim());
-
-  if (step === "otp") {
+  if (step === "sent") {
     return (
       <ModalShell>
-        <OtpStep
-          contact={contact.trim()}
-          onBack={() => setStep("contact")}
-          onVerify={handleVerify}
+        <CheckEmailStep
+          email={email.trim()}
+          onBack={() => setStep("email")}
           onResend={handleResend}
         />
       </ModalShell>
@@ -118,11 +106,12 @@ export default function SignInScreen() {
 
       <label className="flex flex-col gap-1.5">
         <span className="font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim">
-          EMAIL OR PHONE
+          EMAIL
         </span>
         <input
-          value={contact}
-          onChange={(e) => setContact(e.target.value)}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
           placeholder="you@example.com"
           className="rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
         />
@@ -131,10 +120,10 @@ export default function SignInScreen() {
       <button
         type="button"
         onClick={handleContinue}
-        disabled={!contact.trim() || requesting}
+        disabled={!email.trim() || requesting}
         className="rounded-[12px] border-none bg-signal p-[15px] font-sans text-sm font-bold text-signal-on disabled:cursor-not-allowed disabled:opacity-45"
       >
-        {requesting ? "SENDING CODE…" : "CONTINUE"}
+        {requesting ? "SENDING LINK…" : "CONTINUE"}
       </button>
 
       <div className="flex justify-center gap-1.5 font-sans text-xs font-semibold">

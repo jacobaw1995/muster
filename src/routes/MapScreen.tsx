@@ -5,8 +5,9 @@ import { FilterSheet } from "../components/FilterSheet";
 import { FilterIcon, SearchIcon } from "../components/icons";
 import { MapPanel, type MapDemoState } from "../components/MapPanel";
 import { PhotoSlot } from "../components/PhotoSlot";
+import { eventDistanceMi } from "../lib/distance";
 import { filterEvents, hasActiveFilters } from "../lib/filterEvents";
-import { fmtDateLabel, fmtDistance } from "../lib/format";
+import { fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
 import {
   getCategoryMeta,
   withRsvpCounts,
@@ -26,10 +27,12 @@ const DEV_STATE_SWITCHER = import.meta.env.DEV;
 
 function EventListRow({
   event,
+  distanceMi,
   goingLabel,
   onOpen,
 }: {
   event: MusterEvent;
+  distanceMi: number | null;
   goingLabel: string;
   onOpen: () => void;
 }) {
@@ -58,14 +61,14 @@ function EventListRow({
             {meta.label}
           </span>
           <span className="font-mono text-[9.5px] font-semibold text-ink-dim">
-            · {fmtDistance(event.distanceMi)}
+            · {fmtDistance(distanceMi)}
           </span>
         </div>
         <div className="truncate font-sans text-sm font-bold text-ink">
           {event.title}
         </div>
         <div className="truncate font-sans text-[11px] font-medium text-ink-dim">
-          {fmtDateLabel(event.date)} · {event.time} · {event.location}
+          {fmtDateLabel(event.date)} · {event.time} · {fmtVenueLine(event)}
         </div>
         <div className="mt-px flex items-center gap-2">
           <span className="font-mono text-[10.5px] font-bold text-ink">
@@ -95,15 +98,25 @@ interface MapScreenProps {
 
 export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
   const navigate = useNavigate();
-  const { events, filters, setSearch, setRadius, rsvp, loading, loadError, retryLoad } =
-    useSession();
+  const {
+    events,
+    filters,
+    setSearch,
+    setRadius,
+    rsvp,
+    loading,
+    loadError,
+    retryLoad,
+    userLocation,
+    locationStatus,
+    requestLocation,
+  } = useSession();
   const [demoState, setDemoState] = useState<MapDemoState>("live");
-  const [nearMe, setNearMe] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
 
   const filteredEvents = useMemo(
-    () => filterEvents(events, filters),
-    [events, filters],
+    () => filterEvents(events, filters, userLocation),
+    [events, filters, userLocation],
   );
 
   const openDetail = (id: string) => {
@@ -133,8 +146,9 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
     events: filteredEvents,
     radiusMi: filters.radiusMi,
     onCycleRadius: cycleRadius,
-    nearMe,
-    onToggleNearMe: () => setNearMe((v) => !v),
+    userLocation,
+    locationStatus,
+    onRequestLocation: requestLocation,
     onSelectEvent: openDetail,
   };
 
@@ -263,6 +277,7 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
                 <EventListRow
                   key={ev.id}
                   event={ev}
+                  distanceMi={eventDistanceMi(userLocation, ev)}
                   goingLabel={`${counts.going} going`}
                   onOpen={() => openDetail(ev.id)}
                 />
@@ -272,7 +287,9 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
               <div className="px-2.5 py-6 text-center font-sans text-xs font-medium text-ink-dim">
                 {filters.search
                   ? `No matches for "${filters.search}". Try clearing filters.`
-                  : "No events match your filters. Try widening your radius or clearing filters."}
+                  : userLocation
+                    ? "No events match your filters. Try widening your radius or clearing filters."
+                    : "No events match your filters. Try clearing filters."}
               </div>
             )}
           </>

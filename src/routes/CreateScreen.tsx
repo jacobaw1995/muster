@@ -5,6 +5,7 @@ import { CategoryStep } from "../components/create/CategoryStep";
 import { DetailsStep } from "../components/create/DetailsStep";
 import { ReviewStep } from "../components/create/ReviewStep";
 import { ChevronLeftIcon, XIcon } from "../components/icons";
+import { geocodeAddress } from "../lib/api/geocode";
 import { formatTimeOfDay, todayIso } from "../lib/format";
 import type { NewEventInput } from "../state/SessionContext";
 import { useSession } from "../state/SessionContext";
@@ -17,7 +18,12 @@ export interface CreateFormState {
   category: string;
   customCategory: string;
   title: string;
-  location: string;
+  /** Optional venue/label, e.g. "Basin Park trailhead" — city/state below are what actually get geocoded. */
+  venueName: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
   date: string;
   time: string;
   duration: string;
@@ -33,7 +39,11 @@ const INITIAL_FORM: CreateFormState = {
   category: "",
   customCategory: "",
   title: "",
-  location: "",
+  venueName: "",
+  street: "",
+  city: "",
+  state: "",
+  zip: "",
   date: "",
   time: "",
   duration: "2 hours",
@@ -51,6 +61,7 @@ export default function CreateScreen() {
   const { showToast } = useToast();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM);
+  const [posting, setPosting] = useState(false);
 
   const update = (patch: Partial<CreateFormState>) =>
     setForm((prev) => ({ ...prev, ...patch }));
@@ -67,11 +78,14 @@ export default function CreateScreen() {
 
   const nextDisabled =
     (step === 0 && !form.category) ||
-    (step === 1 && (!form.title.trim() || !form.location.trim()));
+    (step === 1 &&
+      (!form.title.trim() || !form.city.trim() || !form.state.trim()));
 
   const handleBack = () => setStep((s) => Math.max(0, s - 1));
 
   const handlePost = async () => {
+    if (posting) return;
+    setPosting(true);
     const isCustom = form.category === "custom";
     const category = isCustom
       ? form.customCategory.trim() || "custom"
@@ -85,12 +99,28 @@ export default function CreateScreen() {
       ? Number(form.capacity.trim())
       : NaN;
 
+    // Geocoded once, here, at creation time — never per map render (see
+    // supabase/functions/geocode). A failure never blocks posting: the
+    // event just goes live without a map pin or real distance until it's
+    // re-geocoded.
+    const geo = await geocodeAddress({
+      street: form.street.trim() || undefined,
+      city: form.city.trim(),
+      state: form.state.trim(),
+      zip: form.zip.trim() || undefined,
+    });
+
     const input: NewEventInput = {
       title: form.title.trim() || "Untitled event",
       category,
       organizer: "You",
-      location: form.location.trim() || "TBD",
-      distanceMi: 0.1,
+      location: form.venueName.trim() || null,
+      street: form.street.trim() || null,
+      city: form.city.trim(),
+      state: form.state.trim(),
+      zip: form.zip.trim() || null,
+      latitude: geo?.lat ?? null,
+      longitude: geo?.lng ?? null,
       date: form.date || todayIso(),
       time: form.time ? formatTimeOfDay(form.time) : "12:00 PM",
       durationLabel: form.duration || "2 hours",
@@ -99,8 +129,6 @@ export default function CreateScreen() {
       notes: form.notes.trim() || "No additional notes from the organizer.",
       website: form.website.trim() || null,
       photoUrl: form.photoUrl,
-      x: 50,
-      y: 50,
     };
 
     try {
@@ -109,12 +137,18 @@ export default function CreateScreen() {
         setRsvp(created.id, "yes");
         addToItinerary(created.id);
       }
-      showToast("Event posted — live now");
+      showToast(
+        geo
+          ? "Event posted — live now"
+          : "Event posted — couldn't pin it on the map yet",
+      );
       resetForm();
       navigate("/");
     } catch (err) {
       console.error(err);
       showToast("Couldn't post your event — try again");
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -176,10 +210,14 @@ export default function CreateScreen() {
         <button
           type="button"
           onClick={handleNext}
-          disabled={nextDisabled}
+          disabled={nextDisabled || posting}
           className="flex-1 rounded-[12px] border-none bg-signal p-[15px] font-sans text-sm font-bold tracking-[0.03em] text-signal-on disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {step < TOTAL_STEPS - 1 ? "CONTINUE" : "POST EVENT"}
+          {step < TOTAL_STEPS - 1
+            ? "CONTINUE"
+            : posting
+              ? "POSTING…"
+              : "POST EVENT"}
         </button>
       </div>
     </div>

@@ -21,7 +21,12 @@ function toMusterEvent(
     category: row.category,
     organizer: row.organizer,
     location: row.location,
-    distanceMi: row.distance_mi,
+    street: row.street,
+    city: row.city,
+    state: row.state,
+    zip: row.zip,
+    latitude: row.latitude,
+    longitude: row.longitude,
     date: row.date,
     time: row.time,
     durationLabel: row.duration_label,
@@ -33,8 +38,6 @@ function toMusterEvent(
     notes: row.notes,
     website: row.website,
     photoUrl: row.photo_url,
-    x: row.map_x,
-    y: row.map_y,
   };
 }
 
@@ -89,8 +92,15 @@ export interface NewEventInput {
   title: string;
   category: string;
   organizer: string;
-  location: string;
-  distanceMi: number;
+  /** Optional venue/label — city/state are the fields that actually get geocoded. */
+  location: string | null;
+  street: string | null;
+  city: string;
+  state: string;
+  zip: string | null;
+  /** Result of geocoding city/state(/street/zip) via the `geocode` Edge Function — null if that failed, which never blocks posting. */
+  latitude: number | null;
+  longitude: number | null;
   date: string;
   time: string;
   durationLabel: string;
@@ -99,8 +109,6 @@ export interface NewEventInput {
   notes: string;
   website: string | null;
   photoUrl: string | null;
-  x: number;
-  y: number;
 }
 
 /**
@@ -118,7 +126,12 @@ export async function createEvent(input: NewEventInput): Promise<MusterEvent> {
       category: input.category,
       organizer: input.organizer,
       location: input.location,
-      distance_mi: input.distanceMi,
+      street: input.street,
+      city: input.city,
+      state: input.state,
+      zip: input.zip,
+      latitude: input.latitude,
+      longitude: input.longitude,
       date: input.date,
       time: input.time,
       duration_label: input.durationLabel,
@@ -127,8 +140,6 @@ export async function createEvent(input: NewEventInput): Promise<MusterEvent> {
       notes: input.notes,
       website: input.website,
       photo_url: input.photoUrl,
-      map_x: input.x,
-      map_y: input.y,
     })
     .select()
     .single();

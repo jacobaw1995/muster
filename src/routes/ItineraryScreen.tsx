@@ -7,6 +7,7 @@ import {
   downloadIcsFile,
   eventDateRange,
 } from "../lib/calendar";
+import { fmtVenueLine } from "../lib/format";
 import { getCategoryMeta, type MusterEvent } from "../lib/mockEvents";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
@@ -54,7 +55,7 @@ function ItineraryRow({
           {event.title}
         </div>
         <div className="font-sans text-[11px] font-medium text-ink-dim">
-          {event.time} · {event.location}
+          {event.time} · {fmtVenueLine(event)}
         </div>
       </div>
       <button

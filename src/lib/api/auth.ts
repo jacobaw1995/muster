@@ -1,58 +1,32 @@
-import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 
 export type OAuthProvider = "google" | "apple";
 
 /**
- * Requests a one-time code for the given contact (email or phone).
+ * Sends a magic-link sign-in email. If the current session is anonymous,
+ * this uses the "convert an anonymous user to a permanent one" flow
+ * (`updateUser`) so clicking the link preserves the same auth.uid() —
+ * existing RSVPs/itinerary/impact carry over with no migration. Otherwise
+ * it's a normal `signInWithOtp`. Both redirect back to the current origin —
+ * production in prod, localhost in dev — where the Supabase client's
+ * `detectSessionInUrl` (see ../supabase.ts) picks the session up
+ * automatically once the browser lands there.
  *
- * If the current session is anonymous, this uses the documented
- * "convert an anonymous user to a permanent one" flow (`updateUser`) so
- * verifying the code later preserves the same auth.uid() — existing
- * RSVPs/itinerary/impact carry over with no migration. If the session is
- * already permanent (or there's no session), this falls back to a normal
- * `signInWithOtp`.
+ * TODO(phone): SMS magic links are out of scope until a phone/SMS provider
+ * is configured in the Supabase dashboard — email only for now.
  */
-export async function requestOtp(
-  contact: string,
+export async function requestMagicLink(
+  email: string,
   isAnonymous: boolean,
 ): Promise<void> {
-  const isEmail = contact.includes("@");
-  if (isAnonymous) {
-    const { error } = isEmail
-      ? await supabase.auth.updateUser({ email: contact })
-      : await supabase.auth.updateUser({ phone: contact });
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = isEmail
-    ? await supabase.auth.signInWithOtp({ email: contact })
-    : await supabase.auth.signInWithOtp({ phone: contact });
-  if (error) throw error;
-}
-
-/** Verifies the code requested via `requestOtp`, using the matching OTP type for anonymous-upgrade vs fresh sign-in. */
-export async function verifyOtp(
-  contact: string,
-  token: string,
-  isAnonymous: boolean,
-): Promise<Session | null> {
-  const isEmail = contact.includes("@");
-
-  const { data, error } = isEmail
-    ? await supabase.auth.verifyOtp({
-        email: contact,
-        token,
-        type: isAnonymous ? "email_change" : "email",
-      })
-    : await supabase.auth.verifyOtp({
-        phone: contact,
-        token,
-        type: isAnonymous ? "phone_change" : "sms",
+  const emailRedirectTo = window.location.origin;
+  const { error } = isAnonymous
+    ? await supabase.auth.updateUser({ email }, { emailRedirectTo })
+    : await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo },
       });
   if (error) throw error;
-  return data.session;
 }
 
 /**

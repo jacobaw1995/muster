@@ -32,14 +32,52 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
         />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className={fieldLabelClass}>LOCATION</span>
+        <span className={fieldLabelClass}>VENUE / LOCATION NAME (OPTIONAL)</span>
         <input
-          value={form.location}
-          onChange={(e) => onChange({ location: e.target.value })}
+          value={form.venueName}
+          onChange={(e) => onChange({ venueName: e.target.value })}
           placeholder="Basin Reservoir Trailhead"
           className={inputClass}
         />
       </label>
+      <label className="flex flex-col gap-1.5">
+        <span className={fieldLabelClass}>STREET (OPTIONAL)</span>
+        <input
+          value={form.street}
+          onChange={(e) => onChange({ street: e.target.value })}
+          placeholder="1310 Washington Ave"
+          className={inputClass}
+        />
+      </label>
+      <div className="flex gap-2.5">
+        <label className="flex flex-1 flex-col gap-1.5">
+          <span className={fieldLabelClass}>CITY</span>
+          <input
+            value={form.city}
+            onChange={(e) => onChange({ city: e.target.value })}
+            placeholder="Golden"
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-1 flex-col gap-1.5">
+          <span className={fieldLabelClass}>STATE</span>
+          <input
+            value={form.state}
+            onChange={(e) => onChange({ state: e.target.value })}
+            placeholder="CO"
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-1 flex-col gap-1.5">
+          <span className={fieldLabelClass}>ZIP (OPTIONAL)</span>
+          <input
+            value={form.zip}
+            onChange={(e) => onChange({ zip: e.target.value })}
+            placeholder="80401"
+            className={inputClass}
+          />
+        </label>
+      </div>
       <div className="flex gap-2.5">
         <label className="flex flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>DATE</span>

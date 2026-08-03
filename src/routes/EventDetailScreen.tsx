@@ -14,7 +14,8 @@ import {
   PeopleIcon,
   ShareIcon,
 } from "../components/icons";
-import { fmtDateLabel } from "../lib/format";
+import { eventDistanceMi } from "../lib/distance";
+import { fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
 import { getCategoryMeta, withRsvpCounts } from "../lib/mockEvents";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
@@ -66,6 +67,7 @@ export default function EventDetailScreen() {
     loading,
     loadError,
     retryLoad,
+    userLocation,
   } = useSession();
   const { showToast } = useToast();
   const [shareOpen, setShareOpen] = useState(false);
@@ -215,10 +217,11 @@ export default function EventDetailScreen() {
             <MapPinIcon className="mt-0.5 flex-none text-accent" />
             <div>
               <div className="font-sans text-[13px] font-bold text-ink">
-                {event.location}
+                {fmtVenueLine(event)}
               </div>
               <div className="font-sans text-[11.5px] font-medium text-ink-dim">
-                {event.distanceMi.toFixed(1)} mi away
+                {fmtDistance(eventDistanceMi(userLocation, event))}
+                {eventDistanceMi(userLocation, event) != null ? " away" : ""}
               </div>
             </div>
           </div>

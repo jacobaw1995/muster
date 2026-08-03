@@ -19,6 +19,7 @@ export type Database = {
           attendees: string[]
           capacity: number | null
           category: string
+          city: string
           cost: string
           created_at: string
           created_by: string | null
@@ -27,21 +28,27 @@ export type Database = {
           duration_label: string
           going_count: number
           id: string
-          location: string
+          latitude: number | null
+          location: string | null
+          longitude: number | null
           map_x: number
           map_y: number
           maybe_count: number
           notes: string
           organizer: string
           photo_url: string | null
+          state: string
+          street: string | null
           time: string
           title: string
           website: string | null
+          zip: string | null
         }
         Insert: {
           attendees?: string[]
           capacity?: number | null
           category: string
+          city: string
           cost?: string
           created_at?: string
           created_by?: string | null
@@ -50,21 +57,27 @@ export type Database = {
           duration_label: string
           going_count?: number
           id?: string
-          location: string
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
           map_x?: number
           map_y?: number
           maybe_count?: number
           notes?: string
           organizer: string
           photo_url?: string | null
+          state: string
+          street?: string | null
           time: string
           title: string
           website?: string | null
+          zip?: string | null
         }
         Update: {
           attendees?: string[]
           capacity?: number | null
           category?: string
+          city?: string
           cost?: string
           created_at?: string
           created_by?: string | null
@@ -73,16 +86,48 @@ export type Database = {
           duration_label?: string
           going_count?: number
           id?: string
-          location?: string
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
           map_x?: number
           map_y?: number
           maybe_count?: number
           notes?: string
           organizer?: string
           photo_url?: string | null
+          state?: string
+          street?: string | null
           time?: string
           title?: string
           website?: string | null
+          zip?: string | null
+        }
+        Relationships: []
+      }
+      geocode_cache: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          lat: number
+          lng: number
+          normalized_address: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          lat: number
+          lng: number
+          normalized_address: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          lat?: number
+          lng?: number
+          normalized_address?: string
         }
         Relationships: []
       }

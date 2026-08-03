@@ -21,6 +21,14 @@ export function ReviewStep({ form, onChange }: ReviewStepProps) {
     form.duration || null,
   ].filter(Boolean);
 
+  const addressParts = [
+    form.venueName.trim(),
+    [form.city.trim(), form.state.trim()].filter(Boolean).join(", "),
+  ].filter(Boolean);
+  const addressLine = addressParts.length
+    ? addressParts.join(" · ")
+    : "No location set";
+
   return (
     <div className="flex flex-col gap-3.5">
       <div className="font-sans text-[11px] font-semibold text-ink-dim">
@@ -41,7 +49,7 @@ export function ReviewStep({ form, onChange }: ReviewStepProps) {
           {whenParts.join(" · ")}
         </div>
         <div className="font-sans text-xs font-medium text-ink-dim">
-          {form.location.trim() || "No location set"}
+          {addressLine}
         </div>
       </div>
 

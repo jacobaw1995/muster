@@ -108,3 +108,34 @@ body {
     transform: translateY(0);
   }
 }
+
+/*
+  iOS Safari auto-zooms the viewport when a focused input/textarea/select
+  renders below 16px. Floor it at 16px below the desktop breakpoint (1024px,
+  matching Tailwind's `lg:`) instead of touching the viewport meta — a
+  maximum-scale/user-scalable=no fix would kill pinch-zoom, which is an
+  accessibility regression.
+*/
+@media (max-width: 1023px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/*
+  Leaflet's own control chrome (attribution — required by the CARTO/OSM
+  tile terms; we don't add a zoom control) restyled with app tokens so it
+  reads as native to the dark/light theme instead of Leaflet's default
+  white box.
+*/
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--card) 85%, transparent) !important;
+  color: var(--ink-dim) !important;
+  font-size: 9px !important;
+  border-radius: 6px 0 0 0;
+}
+.leaflet-control-attribution a {
+  color: var(--ink-dim) !important;
+}

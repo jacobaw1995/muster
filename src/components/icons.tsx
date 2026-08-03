@@ -200,6 +200,15 @@ export function AlertIcon(props: IconProps) {
   );
 }
 
+export function MailIcon(props: IconProps) {
+  return (
+    <svg {...base({ size: 26, strokeWidth: 1.6, ...props })}>
+      <rect x="2" y="4.5" width="20" height="15" rx="2" />
+      <path d="M2.5 5.5l9.5 8 9.5-8" />
+    </svg>
+  );
+}
+
 export function ExternalLinkIcon(props: IconProps) {
   return (
     <svg {...base({ size: 14, ...props })}>

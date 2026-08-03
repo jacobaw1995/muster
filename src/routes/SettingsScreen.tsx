@@ -12,6 +12,10 @@ import { useToast } from "../state/ToastContext";
 const sectionLabelClass =
   "font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim";
 
+// TODO(GCal): flip once real Google Calendar OAuth (a separate consent scope
+// from sign-in) is wired up — the button below just toasts today.
+const GCAL_ENABLED = false;
+
 export default function SettingsScreen() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -28,6 +32,18 @@ export default function SettingsScreen() {
   } = useSession();
   const { showToast } = useToast();
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [nameDraft, setNameDraft] = useState(auth.name ?? "");
+  const [savingName, setSavingName] = useState(false);
+
+  // Keeps the draft in sync if the real name changes from elsewhere (e.g.
+  // Sign Up's stashed name landing right after this mounts), unless the
+  // field is actively being edited/saved. Adjusting state during render,
+  // not an effect — same pattern as `wasSignedIn` below.
+  const [lastSyncedName, setLastSyncedName] = useState(auth.name ?? "");
+  if ((auth.name ?? "") !== lastSyncedName && !savingName) {
+    setLastSyncedName(auth.name ?? "");
+    setNameDraft(auth.name ?? "");
+  }
 
   // Tracks whether this mount ever saw a signed-in user, so a LOG OUT click
   // (which flips auth.signedIn false while this component is still briefly
@@ -74,9 +90,23 @@ export default function SettingsScreen() {
     }
   };
 
-  // TODO(Phase 3 follow-up): wire real Google Calendar OAuth (separate consent scope from sign-in) — this just confirms via toast.
   const handleConnectGCal = () => {
     showToast("Google Calendar connected");
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === (auth.name ?? "") || savingName) return;
+    setSavingName(true);
+    try {
+      await updateProfile({ name: trimmed });
+      showToast("Name updated");
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't update your name — try again");
+    } finally {
+      setSavingName(false);
+    }
   };
 
   return (
@@ -97,11 +127,35 @@ export default function SettingsScreen() {
         />
         <div className="min-w-0">
           <div className="truncate font-sans text-[15px] font-bold text-ink">
-            {auth.name}
+            {auth.name ?? "Member"}
           </div>
           <div className="truncate font-mono text-[11.5px] font-medium text-ink-dim">
             {auth.contact}
           </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className={sectionLabelClass}>DISPLAY NAME</div>
+        <div className="flex gap-2">
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            placeholder="Alex Rivera"
+            className="flex-1 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleSaveName}
+            disabled={
+              !nameDraft.trim() ||
+              nameDraft.trim() === (auth.name ?? "") ||
+              savingName
+            }
+            className="flex-none rounded-input border-none bg-accent px-4 font-sans text-[12.5px] font-bold text-accent-on disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {savingName ? "SAVING…" : "SAVE"}
+          </button>
         </div>
       </div>
 
@@ -161,14 +215,16 @@ export default function SettingsScreen() {
 
       <div className="flex flex-col gap-2">
         <div className={sectionLabelClass}>ACCOUNT</div>
-        <button
-          type="button"
-          onClick={handleConnectGCal}
-          className="flex items-center justify-center gap-2 rounded-input border border-line bg-card p-[13px] font-sans text-[12.5px] font-bold text-ink"
-        >
-          <CalendarIcon className="text-ink" />
-          Connect Google Calendar
-        </button>
+        {GCAL_ENABLED && (
+          <button
+            type="button"
+            onClick={handleConnectGCal}
+            className="flex items-center justify-center gap-2 rounded-input border border-line bg-card p-[13px] font-sans text-[12.5px] font-bold text-ink"
+          >
+            <CalendarIcon className="text-ink" />
+            Connect Google Calendar
+          </button>
+        )}
         <button
           type="button"
           onClick={handleLogOut}

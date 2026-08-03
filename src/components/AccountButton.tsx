@@ -22,7 +22,7 @@ export function AccountButton({ className = "" }: { className?: string }) {
         <PersonIcon />
       ) : (
         <span className="font-sans text-[10px] font-bold">
-          {getInitials(auth.name)}
+          {getInitials(auth.name, auth.contact)}
         </span>
       )}
     </Link>

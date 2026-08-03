@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,7 +14,7 @@ import {
   type DateFilter,
   type EventFilters,
 } from "../lib/filterEvents";
-import { supabase } from "../lib/supabase";
+import { hadAuthRedirectHash, supabase } from "../lib/supabase";
 import type { MusterEvent, RsvpStatus } from "../lib/mockEvents";
 import {
   createEvent as apiCreateEvent,
@@ -23,10 +24,13 @@ import {
 } from "../lib/api/events";
 import {
   linkOrSignInWithOAuth,
-  requestOtp as apiRequestOtp,
-  verifyOtp as apiVerifyOtp,
+  requestMagicLink as apiRequestMagicLink,
   type OAuthProvider,
 } from "../lib/api/auth";
+import {
+  hasPendingProfileName,
+  takePendingProfileName,
+} from "../lib/pendingProfileName";
 import {
   getOrgImpact,
   getPersonalImpact,
@@ -46,6 +50,11 @@ import {
   listRsvpsForUser,
   setRsvp as apiSetRsvp,
 } from "../lib/api/rsvps";
+import type { Coords } from "../lib/distance";
+import {
+  requestBrowserLocation,
+  type LocationStatus,
+} from "../lib/geolocation";
 import { useToast } from "./ToastContext";
 
 export type {
@@ -54,6 +63,7 @@ export type {
   OAuthProvider,
   OrgImpactTotals,
   PersonalImpactTotals,
+  LocationStatus,
 };
 export { apiGetEvent as getEventById };
 
@@ -86,14 +96,19 @@ function summarizeAmounts(amounts: {
 }
 
 /**
- * Real Supabase auth (Phase 3). Every visitor gets a session on first
- * load — anonymous by default (see the bootstrap effect below), upgraded
- * in place to a permanent identity via email/phone OTP or Google/Apple
- * identity linking. Because the upgrade preserves auth.uid(), existing
- * RSVPs/itinerary/impact carry over automatically — no data migration.
+ * Real Supabase auth (Phase 3, magic-link since Phase 6). Every visitor
+ * gets a session on first load — anonymous by default (see the bootstrap
+ * effect below), upgraded in place to a permanent identity via emailed
+ * magic link or Google/Apple identity linking. Because the upgrade
+ * preserves auth.uid(), existing RSVPs/itinerary/impact carry over
+ * automatically — no data migration.
  *
  * `signedIn` means "has a permanent identity," not just "has a session"
- * (an anonymous visitor always has a session).
+ * (an anonymous visitor always has a session). `name` is the raw profile
+ * value (null until one's been set) — screens decide their own fallback
+ * copy (e.g. Settings shows "Member") rather than baking a placeholder in
+ * here, since AccountButton needs the *real* absence of a name to fall
+ * back to an email-initial instead.
  */
 export interface AuthState {
   signedIn: boolean;
@@ -152,6 +167,13 @@ interface SessionContextValue {
   /** Current session's user id (anonymous or permanent) — null only until the bootstrap resolves. Handy for e.g. attributing storage uploads. */
   userId: string | null;
 
+  /** Null until `requestLocation` succeeds — real device coordinates (Phase 7), used for distance labels, the radius filter, and nearest-first sort. */
+  userLocation: Coords | null;
+  /** Distinguishes "haven't asked" from "asked and denied" from "asked and it's just unavailable" so the map/filter UI can hint appropriately. */
+  locationStatus: LocationStatus;
+  /** Prompts the browser's geolocation permission (or reads a cached grant). Never throws — a denial or error just leaves `userLocation` null with `locationStatus` reflecting why. */
+  requestLocation: () => Promise<void>;
+
   /** Inserts a new event row and prepends it to `events`. Returns the created row (with its DB-generated id) so callers can immediately RSVP/add-to-itinerary against it. */
   addEvent: (input: NewEventInput) => Promise<MusterEvent>;
   /** Toggles the given status on; tapping the already-active status clears it. Persists in the background. */
@@ -165,10 +187,13 @@ interface SessionContextValue {
     amounts: { bags: number; miles: number; people: number },
   ) => void;
 
-  /** Requests a one-time code for the given email or phone. */
-  requestOtp: (contact: string) => Promise<void>;
-  /** Verifies the code from `requestOtp`. On success the session becomes (or stays) permanent, preserving the same uid. `name` is upserted onto the profile if provided (Sign Up). */
-  verifyOtp: (contact: string, token: string, name?: string) => Promise<void>;
+  /**
+   * Sends a magic-link sign-in email to the given address. An anonymous
+   * session upgrades in place (preserving auth.uid()); anyone else gets a
+   * normal magic-link sign-in. The browser comes back via the emailed link
+   * and the session is picked up automatically — see the bootstrap effect.
+   */
+  requestMagicLink: (email: string) => Promise<void>;
   /** Google/Apple — upgrades the anonymous session in place (or signs in normally if already permanent). Rejects without crashing if the provider isn't configured yet in the dashboard. */
   linkOAuth: (provider: OAuthProvider) => Promise<void>;
   /** Updates the caller's own profile row (name/contact/avatarUrl) — fields left undefined are untouched. */
@@ -212,6 +237,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   });
   const [eventReminders, setEventReminders] = useState(true);
   const [newEventsNearby, setNewEventsNearby] = useState(true);
+  const [userLocation, setUserLocation] = useState<Coords | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -230,11 +257,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), []);
 
+  // Seeded from a synchronous check of the URL at module-import time (see
+  // hadAuthRedirectHash) so it's accurate regardless of effect-subscription
+  // timing. Cleared the first time we see a resulting permanent session, so
+  // the "you just signed in" toast fires exactly once per redirect.
+  const awaitingRedirectReturn = useRef(hadAuthRedirectHash);
+
   // Auth bootstrap: restore an existing session, or establish a fresh
   // anonymous one so every visitor — signed in or not — has a real
   // auth.uid(). Stays subscribed for the lifetime of the app so sign
-  // in/out/link events (including the redirect-back from Google/Apple)
-  // flow straight into state.
+  // in/out/link events (including the redirect-back from a magic link or
+  // Google/Apple) flow straight into state.
   useEffect(() => {
     let cancelled = false;
 
@@ -262,13 +295,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      if (
+        awaitingRedirectReturn.current &&
+        newSession &&
+        !newSession.user.is_anonymous
+      ) {
+        awaitingRedirectReturn.current = false;
+        // A pending name means this is a Sign Up completing — the
+        // pending-profile-name effect below applies it and toasts
+        // "Account created" itself once it lands. Otherwise this is a
+        // plain magic-link sign-in with nothing else to do.
+        if (!hasPendingProfileName()) {
+          showToast("Signed in");
+        }
+      }
     });
 
     return () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [loadAttempt]);
+  }, [loadAttempt, showToast]);
 
   // Data load: events/rsvps/itinerary/impact/org totals/profile, once a
   // real uid is available. Upgrading anonymous -> permanent keeps the same
@@ -360,6 +407,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [userId, isAnonymous, loadAttempt]);
+
+  // Applies a name stashed by Sign Up (see pendingProfileName.ts) once the
+  // magic-link round trip completes and the session is permanent. Runs
+  // after the data-load effect above, so it always has the last word over
+  // whatever `getProfile`/auto-provisioning set — deliberately overwriting
+  // in the sign-up case. A no-op on every render after the first, since
+  // `takePendingProfileName` clears the stash as soon as it's read.
+  useEffect(() => {
+    if (!userId || isAnonymous) return;
+    const pendingName = takePendingProfileName();
+    if (!pendingName) return;
+    upsertProfile({ name: pendingName })
+      .then((updated) => {
+        setProfile({
+          name: updated.name,
+          contact: updated.contact,
+          avatarUrl: updated.avatarUrl,
+        });
+        showToast("Account created");
+      })
+      .catch((err) => {
+        console.error(err);
+        showToast("Signed in — couldn't save your name, add it in Settings");
+      });
+  }, [userId, isAnonymous, showToast]);
 
   const addEvent = useCallback(async (input: NewEventInput) => {
     const created = await apiCreateEvent(input);
@@ -472,22 +544,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [events, showToast],
   );
 
-  const requestOtp = useCallback(
-    (contact: string) => apiRequestOtp(contact, isAnonymous),
-    [isAnonymous],
-  );
-
-  const verifyOtp = useCallback(
-    async (contact: string, token: string, name?: string) => {
-      const newSession = await apiVerifyOtp(contact, token, isAnonymous);
-      if (newSession) setSession(newSession);
-      const updated = await upsertProfile({ name, contact });
-      setProfile({
-        name: updated.name,
-        contact: updated.contact,
-        avatarUrl: updated.avatarUrl,
-      });
-    },
+  const requestMagicLink = useCallback(
+    (email: string) => apiRequestMagicLink(email, isAnonymous),
     [isAnonymous],
   );
 
@@ -519,6 +577,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     setSession(data.session);
   }, [showToast]);
+
+  const requestLocation = useCallback(async () => {
+    setLocationStatus("requesting");
+    const result = await requestBrowserLocation();
+    if (result.status === "granted") {
+      setUserLocation(result.coords);
+    }
+    setLocationStatus(result.status);
+  }, []);
 
   const setSearch = useCallback(
     (value: string) => setFilters((prev) => ({ ...prev, search: value })),
@@ -571,7 +638,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!signedIn) return SIGNED_OUT_AUTH;
     return {
       signedIn: true,
-      name: profile?.name ?? "Member",
+      name: profile?.name ?? null,
       contact: profile?.contact ?? null,
       avatarUrl: profile?.avatarUrl ?? null,
     };
@@ -593,14 +660,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadError,
       retryLoad,
       userId,
+      userLocation,
+      locationStatus,
+      requestLocation,
       addEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,
       toggleItinerary,
       logImpact,
-      requestOtp,
-      verifyOtp,
+      requestMagicLink,
       linkOAuth,
       updateProfile,
       signOut,
@@ -630,14 +699,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadError,
       retryLoad,
       userId,
+      userLocation,
+      locationStatus,
+      requestLocation,
       addEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,
       toggleItinerary,
       logImpact,
-      requestOtp,
-      verifyOtp,
+      requestMagicLink,
       linkOAuth,
       updateProfile,
       signOut,

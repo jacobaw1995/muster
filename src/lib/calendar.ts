@@ -1,3 +1,4 @@
+import { fmtVenueLine } from "./format";
 import type { MusterEvent } from "./mockEvents";
 
 /** Parses a display-ready time string ("5:30 AM") into 24h hours/minutes. */
@@ -46,7 +47,7 @@ export function buildGoogleCalendarUrl(event: MusterEvent): string {
     action: "TEMPLATE",
     text: event.title,
     dates,
-    location: event.location,
+    location: fmtVenueLine(event),
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -64,7 +65,7 @@ export function buildIcsCalendar(events: MusterEvent[]): string {
       "BEGIN:VEVENT",
       `UID:${event.id}@muster`,
       `SUMMARY:${escapeIcsText(event.title)}`,
-      `LOCATION:${escapeIcsText(event.location)}`,
+      `LOCATION:${escapeIcsText(fmtVenueLine(event))}`,
       `DTSTART:${formatIcsDateTime(start)}`,
       `DTEND:${formatIcsDateTime(end)}`,
       "END:VEVENT",
