@@ -1,18 +1,10 @@
+import { CUSTOM_DURATION_KEY, DURATION_PRESETS } from "../../lib/duration";
 import type { CreateFormState } from "../../routes/CreateScreen";
-
-const DURATION_OPTIONS = [
-  "1 hour",
-  "2 hours",
-  "3 hours",
-  "4 hours",
-  "6 hours",
-  "All day",
-];
 
 const fieldLabelClass =
   "font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim";
 const inputClass =
-  "rounded-input border border-line bg-card p-[13px] font-sans text-sm font-semibold text-ink outline-none";
+  "box-border w-full rounded-input border border-line bg-card p-[13px] font-sans text-sm font-semibold text-ink outline-none";
 
 interface BasicsStepProps {
   form: CreateFormState;
@@ -20,6 +12,8 @@ interface BasicsStepProps {
 }
 
 export function BasicsStep({ form, onChange }: BasicsStepProps) {
+  const isCustomDuration = form.durationChoice === CUSTOM_DURATION_KEY;
+
   return (
     <div className="flex flex-col gap-3">
       <label className="flex flex-col gap-1.5">
@@ -49,8 +43,8 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
           className={inputClass}
         />
       </label>
-      <div className="flex gap-2.5">
-        <label className="flex flex-1 flex-col gap-1.5">
+      <div className="flex flex-wrap gap-2.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>CITY</span>
           <input
             value={form.city}
@@ -59,7 +53,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             className={inputClass}
           />
         </label>
-        <label className="flex flex-1 flex-col gap-1.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>STATE</span>
           <input
             value={form.state}
@@ -68,7 +62,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             className={inputClass}
           />
         </label>
-        <label className="flex flex-1 flex-col gap-1.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>ZIP (OPTIONAL)</span>
           <input
             value={form.zip}
@@ -79,7 +73,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
         </label>
       </div>
       <div className="flex gap-2.5">
-        <label className="flex flex-1 flex-col gap-1.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>DATE</span>
           <input
             type="date"
@@ -88,7 +82,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             className={`${inputClass} text-[13px]`}
           />
         </label>
-        <label className="flex flex-1 flex-col gap-1.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className={fieldLabelClass}>TIME</span>
           <input
             type="time"
@@ -101,24 +95,52 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
       <label className="flex flex-col gap-1.5">
         <span className={fieldLabelClass}>DURATION</span>
         <div className="grid grid-cols-3 gap-2">
-          {DURATION_OPTIONS.map((option) => {
-            const active = form.duration === option;
+          {DURATION_PRESETS.map((preset) => {
+            const active = form.durationChoice === preset.key;
             return (
               <button
-                key={option}
+                key={preset.key}
                 type="button"
-                onClick={() => onChange({ duration: option })}
+                onClick={() => onChange({ durationChoice: preset.key })}
                 className={`rounded-[10px] border-[1.5px] px-1.5 py-[11px] font-sans text-xs font-bold ${
                   active
                     ? "border-accent bg-accent text-accent-on"
                     : "border-line bg-card text-ink-dim"
                 }`}
               >
-                {option}
+                {preset.label}
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => onChange({ durationChoice: CUSTOM_DURATION_KEY })}
+            className={`rounded-[10px] border-[1.5px] px-1.5 py-[11px] font-sans text-xs font-bold ${
+              isCustomDuration
+                ? "border-accent bg-accent text-accent-on"
+                : "border-line bg-card text-ink-dim"
+            }`}
+          >
+            Custom…
+          </button>
         </div>
+        {isCustomDuration && (
+          <div className="flex items-center gap-2">
+            <input
+              value={form.durationCustomHours}
+              onChange={(e) => onChange({ durationCustomHours: e.target.value })}
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0.5"
+              placeholder="e.g. 1.5"
+              className={inputClass}
+            />
+            <span className="flex-none font-sans text-xs font-semibold text-ink-dim">
+              hours
+            </span>
+          </div>
+        )}
       </label>
     </div>
   );

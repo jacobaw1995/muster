@@ -6,6 +6,7 @@ import { DetailsStep } from "../components/create/DetailsStep";
 import { ReviewStep } from "../components/create/ReviewStep";
 import { ChevronLeftIcon, XIcon } from "../components/icons";
 import { geocodeAddress } from "../lib/api/geocode";
+import { resolveDuration } from "../lib/duration";
 import { formatTimeOfDay, todayIso } from "../lib/format";
 import type { NewEventInput } from "../state/SessionContext";
 import { useSession } from "../state/SessionContext";
@@ -26,7 +27,9 @@ export interface CreateFormState {
   zip: string;
   date: string;
   time: string;
-  duration: string;
+  /** A DURATION_PRESETS key, or the CUSTOM_DURATION_KEY sentinel (paired with durationCustomHours) — see lib/duration.ts. */
+  durationChoice: string;
+  durationCustomHours: string;
   cost: string;
   capacity: string;
   notes: string;
@@ -46,7 +49,8 @@ const INITIAL_FORM: CreateFormState = {
   zip: "",
   date: "",
   time: "",
-  duration: "2 hours",
+  durationChoice: "2h",
+  durationCustomHours: "",
   cost: "",
   capacity: "",
   notes: "",
@@ -110,6 +114,8 @@ export default function CreateScreen() {
       zip: form.zip.trim() || undefined,
     });
 
+    const duration = resolveDuration(form.durationChoice, form.durationCustomHours);
+
     const input: NewEventInput = {
       title: form.title.trim() || "Untitled event",
       category,
@@ -123,7 +129,8 @@ export default function CreateScreen() {
       longitude: geo?.lng ?? null,
       date: form.date || todayIso(),
       time: form.time ? formatTimeOfDay(form.time) : "12:00 PM",
-      durationLabel: form.duration || "2 hours",
+      durationLabel: duration.label,
+      durationMinutes: duration.minutes,
       cost,
       capacity: Number.isFinite(capacityNum) ? capacityNum : null,
       notes: form.notes.trim() || "No additional notes from the organizer.",

@@ -45,7 +45,8 @@ function userLocationDivIcon(): L.DivIcon {
 interface MapPanelProps {
   demoState: MapDemoState;
   events: MusterEvent[];
-  radiusMi: number;
+  /** Null means "Any distance" — no radius filtering. */
+  radiusMi: number | null;
   onCycleRadius: () => void;
   userLocation: Coords | null;
   locationStatus: LocationStatus;
@@ -189,7 +190,9 @@ export function MapPanel({
   };
 
   const radiusLabel = userLocation
-    ? `${radiusMi} MI RADIUS ▾`
+    ? radiusMi == null
+      ? "ANY DISTANCE ▾"
+      : `${radiusMi} MI RADIUS ▾`
     : locationStatus === "denied"
       ? "LOCATION OFF"
       : locationStatus === "requesting"
@@ -230,7 +233,7 @@ export function MapPanel({
             Nothing happening nearby
           </div>
           <div className="font-sans text-[11px] leading-[1.4] text-ink-dim">
-            {userLocation
+            {userLocation && radiusMi != null
               ? `No events within ${radiusMi} mi. Widen your radius or be the first to post one.`
               : "No events match yet. Be the first to post one."}
           </div>

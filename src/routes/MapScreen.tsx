@@ -6,7 +6,7 @@ import { FilterIcon, SearchIcon } from "../components/icons";
 import { MapPanel, type MapDemoState } from "../components/MapPanel";
 import { PhotoSlot } from "../components/PhotoSlot";
 import { eventDistanceMi } from "../lib/distance";
-import { filterEvents, hasActiveFilters } from "../lib/filterEvents";
+import { RADIUS_OPTIONS, filterEvents, hasActiveFilters } from "../lib/filterEvents";
 import { fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
 import {
   getCategoryMeta,
@@ -124,9 +124,8 @@ export default function MapScreen({ mapOnly = false }: MapScreenProps = {}) {
   };
 
   const cycleRadius = () => {
-    const options = [10, 25, 50, 100];
-    const i = options.indexOf(filters.radiusMi);
-    setRadius(options[(i + 1) % options.length]);
+    const i = RADIUS_OPTIONS.findIndex((mi) => mi === filters.radiusMi);
+    setRadius(RADIUS_OPTIONS[(i + 1) % RADIUS_OPTIONS.length]);
   };
 
   // The dev switcher can still force loading/empty/error for design review;

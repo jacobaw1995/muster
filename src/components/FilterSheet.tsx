@@ -4,6 +4,7 @@ import { CATEGORY_ORDER, getCategoryMeta } from "../lib/mockEvents";
 import { useSession } from "../state/SessionContext";
 import { BottomSheet } from "./BottomSheet";
 import { Switch } from "./Switch";
+import { XIcon } from "./icons";
 
 const DATE_CHOICES: { key: DateFilter; label: string }[] = [
   { key: "any", label: "Any time" },
@@ -44,13 +45,23 @@ export function FilterSheet({ open, onClose, resultCount }: FilterSheetProps) {
         <div className="font-sans text-[15px] font-bold text-ink">
           Filter events
         </div>
-        <button
-          type="button"
-          onClick={clearFilters}
-          className="border-none bg-transparent font-sans text-xs font-bold text-accent"
-        >
-          CLEAR
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="border-none bg-transparent font-sans text-xs font-bold text-accent"
+          >
+            CLEAR
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-full border border-line bg-card text-ink"
+          >
+            <XIcon size={13} />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -127,12 +138,12 @@ export function FilterSheet({ open, onClose, resultCount }: FilterSheetProps) {
         <div className="font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim">
           SEARCH RADIUS
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {RADIUS_OPTIONS.map((mi) => {
             const active = filters.radiusMi === mi;
             return (
               <button
-                key={mi}
+                key={mi ?? "any"}
                 type="button"
                 onClick={() => setRadius(mi)}
                 className={`flex-1 rounded-[10px] border-[1.5px] px-2.5 py-2.5 font-sans text-[11.5px] font-bold ${
@@ -141,10 +152,14 @@ export function FilterSheet({ open, onClose, resultCount }: FilterSheetProps) {
                     : "border-line bg-card text-ink-dim"
                 }`}
               >
-                {mi} mi
+                {mi == null ? "Any" : `${mi} mi`}
               </button>
             );
           })}
+        </div>
+        <div className="font-sans text-[10.5px] font-medium text-ink-dim">
+          "Any" shows every event regardless of distance, even without
+          location enabled.
         </div>
       </div>
 

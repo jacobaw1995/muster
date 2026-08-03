@@ -80,7 +80,7 @@ export async function getPersonalImpact(
 }
 
 export interface OrgImpactTotals {
-  lbsTrash: number;
+  bagsTrash: number;
   milesRucked: number;
   eventsHeld: number;
   livesImpacted: number;
@@ -101,7 +101,7 @@ export async function getOrgImpact(
   if (!data) return null;
 
   return {
-    lbsTrash: data.lbs_trash,
+    bagsTrash: data.bags_trash,
     milesRucked: data.miles_rucked,
     eventsHeld: data.events_held,
     livesImpacted: data.lives_impacted,

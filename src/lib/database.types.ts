@@ -26,6 +26,7 @@ export type Database = {
           date: string
           distance_mi: number
           duration_label: string
+          duration_minutes: number | null
           going_count: number
           id: string
           latitude: number | null
@@ -55,6 +56,7 @@ export type Database = {
           date: string
           distance_mi?: number
           duration_label: string
+          duration_minutes?: number | null
           going_count?: number
           id?: string
           latitude?: number | null
@@ -84,6 +86,7 @@ export type Database = {
           date?: string
           distance_mi?: number
           duration_label?: string
+          duration_minutes?: number | null
           going_count?: number
           id?: string
           latitude?: number | null
@@ -201,24 +204,24 @@ export type Database = {
       org_impact_totals: {
         Row: {
           active_members: number
+          bags_trash: number
           events_held: number
-          lbs_trash: number
           lives_impacted: number
           miles_rucked: number
           period: string
         }
         Insert: {
           active_members: number
+          bags_trash: number
           events_held: number
-          lbs_trash: number
           lives_impacted: number
           miles_rucked: number
           period: string
         }
         Update: {
           active_members?: number
+          bags_trash?: number
           events_held?: number
-          lbs_trash?: number
           lives_impacted?: number
           miles_rucked?: number
           period?: string

@@ -10,12 +10,8 @@ function parseDisplayTime(display: string): { hours: number; minutes: number } {
   return { hours, minutes: Number(match[2]) };
 }
 
-function durationToMinutes(label: string): number {
-  if (/all day/i.test(label)) return 24 * 60;
-  const match = label.match(/^(\d+)\s*hours?$/i);
-  if (match) return Number(match[1]) * 60;
-  return 120;
-}
+/** "TBD / by ear" events have no real end time — a 1-hour placeholder keeps calendar entries from being zero-length; duration_label still says "TBD" so nobody mistakes it for a firm end. */
+const TBD_FALLBACK_MINUTES = 60;
 
 /** Local-time start/end Date objects for an event, derived from date + time + duration. */
 export function eventDateRange(event: MusterEvent): { start: Date; end: Date } {
@@ -25,9 +21,10 @@ export function eventDateRange(event: MusterEvent): { start: Date; end: Date } {
     ? { hours: 0, minutes: 0 }
     : parseDisplayTime(event.time);
   const start = new Date(year, month - 1, day, hours, minutes);
-  const end = new Date(
-    start.getTime() + durationToMinutes(event.durationLabel) * 60_000,
-  );
+  const durationMinutes = isAllDay
+    ? 24 * 60
+    : (event.durationMinutes ?? TBD_FALLBACK_MINUTES);
+  const end = new Date(start.getTime() + durationMinutes * 60_000);
   return { start, end };
 }
 

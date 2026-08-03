@@ -2,14 +2,15 @@ import { eventDistanceMi, type Coords } from "./distance";
 import type { MusterEvent } from "./mockEvents";
 
 export type DateFilter = "any" | "week" | "month" | "custom";
-export const RADIUS_OPTIONS = [10, 25, 50, 100] as const;
+/** `null` is "Any distance" — no radius filtering at all, regardless of whether a location is known. */
+export const RADIUS_OPTIONS = [10, 25, 50, 100, null] as const;
 export type RadiusMi = (typeof RADIUS_OPTIONS)[number];
 
 export interface EventFilters {
   search: string;
   categories: string[];
   freeOnly: boolean;
-  radiusMi: number;
+  radiusMi: number | null;
   dateFilter: DateFilter;
   dateFrom: string;
   dateTo: string;
@@ -93,7 +94,7 @@ export function filterEvents(
     if (filters.categories.length && !filters.categories.includes(ev.category))
       return false;
     if (filters.freeOnly && ev.cost !== "FREE") return false;
-    if (userLocation) {
+    if (userLocation && filters.radiusMi != null) {
       const d = eventDistanceMi(userLocation, ev);
       if (d != null && d > filters.radiusMi) return false;
     }

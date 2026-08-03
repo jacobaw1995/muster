@@ -8,7 +8,7 @@ type ImpactTab = "you" | "org";
 type OrgPeriod = "year" | "alltime";
 
 const ZERO_ORG_STATS: OrgImpactTotals = {
-  lbsTrash: 0,
+  bagsTrash: 0,
   milesRucked: 0,
   eventsHeld: 0,
   livesImpacted: 0,
@@ -123,7 +123,7 @@ function OrgImpactView({
     (period === "year" ? orgImpact.year : orgImpact.allTime) ??
     ZERO_ORG_STATS;
   const animated = useCountUp({
-    trash: stats.lbsTrash,
+    trash: stats.bagsTrash,
     miles: stats.milesRucked,
     events: stats.eventsHeld,
     lives: stats.livesImpacted,
@@ -170,7 +170,7 @@ function OrgImpactView({
           {Math.round(animated.trash).toLocaleString("en-US")}
         </div>
         <div className="font-sans text-[11px] font-bold tracking-[0.08em] text-accent">
-          LBS OF TRASH REMOVED
+          BAGS OF TRASH REMOVED
         </div>
       </div>
 

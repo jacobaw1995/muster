@@ -213,7 +213,7 @@ interface SessionContextValue {
   setDateFilter: (value: DateFilter) => void;
   setDateFrom: (value: string) => void;
   setDateTo: (value: string) => void;
-  setRadius: (mi: number) => void;
+  setRadius: (mi: number | null) => void;
   clearFilters: () => void;
 }
 
@@ -619,7 +619,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
   const setRadius = useCallback(
-    (mi: number) => setFilters((prev) => ({ ...prev, radiusMi: mi })),
+    (mi: number | null) => setFilters((prev) => ({ ...prev, radiusMi: mi })),
     [],
   );
   const clearFilters = useCallback(

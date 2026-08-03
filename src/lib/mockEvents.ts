@@ -68,6 +68,8 @@ export interface MusterEvent {
   /** Display-ready time, e.g. "5:30 AM". */
   time: string;
   durationLabel: string;
+  /** Numeric minutes for calendar math (Phase 9) — null for "All day" (a full 24h span, driven by durationLabel instead) and "TBD / by ear" (no fixed end, see lib/calendar.ts). */
+  durationMinutes: number | null;
   /** "FREE" or a display-ready price like "$12". */
   cost: string;
   capacity: number | null;

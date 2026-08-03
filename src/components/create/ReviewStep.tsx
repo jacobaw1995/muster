@@ -1,4 +1,5 @@
 import { Switch } from "../Switch";
+import { resolveDuration } from "../../lib/duration";
 import { fmtDateLabel, formatTimeOfDay } from "../../lib/format";
 import { getCategoryMeta } from "../../lib/mockEvents";
 import type { CreateFormState } from "../../routes/CreateScreen";
@@ -15,10 +16,11 @@ export function ReviewStep({ form, onChange }: ReviewStepProps) {
     ? (form.customCategory.trim() || "CUSTOM").toUpperCase()
     : meta.label;
 
+  const duration = resolveDuration(form.durationChoice, form.durationCustomHours);
   const whenParts = [
     form.date ? fmtDateLabel(form.date) : "No date set",
     form.time ? formatTimeOfDay(form.time) : null,
-    form.duration || null,
+    duration.label,
   ].filter(Boolean);
 
   const addressParts = [

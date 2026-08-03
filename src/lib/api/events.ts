@@ -30,6 +30,7 @@ function toMusterEvent(
     date: row.date,
     time: row.time,
     durationLabel: row.duration_label,
+    durationMinutes: row.duration_minutes,
     cost: row.cost,
     capacity: row.capacity,
     goingCount: row.going_count + liveGoing,
@@ -104,6 +105,8 @@ export interface NewEventInput {
   date: string;
   time: string;
   durationLabel: string;
+  /** Null for "All day" and "TBD / by ear" — see MusterEvent.durationMinutes. */
+  durationMinutes: number | null;
   cost: string;
   capacity: number | null;
   notes: string;
@@ -135,6 +138,7 @@ export async function createEvent(input: NewEventInput): Promise<MusterEvent> {
       date: input.date,
       time: input.time,
       duration_label: input.durationLabel,
+      duration_minutes: input.durationMinutes,
       cost: input.cost,
       capacity: input.capacity,
       notes: input.notes,
