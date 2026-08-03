@@ -93,6 +93,7 @@ export function DetailsStep({ form, onChange }: DetailsStepProps) {
           className="h-[120px] w-full rounded-input"
           onSelectFile={handleSelectPhoto}
           uploading={uploading}
+          onRemove={() => onChange({ photoUrl: null })}
         />
         <span className="font-sans text-[10.5px] font-medium text-ink-dim">
           JPG or PNG, landscape works best, up to ~5MB.

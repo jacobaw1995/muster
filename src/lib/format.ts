@@ -37,6 +37,15 @@ export function formatTimeOfDay(raw: string): string {
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+/** Inverse of formatTimeOfDay — "5:30 AM" -> "05:30", for pre-filling an <input type="time"> when editing an existing event (Phase 10). Falls back to "" if unparseable. */
+export function parseTimeOfDayTo24h(display: string): string {
+  const match = display.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return "";
+  let hours = Number(match[1]) % 12;
+  if (/pm/i.test(match[3])) hours += 12;
+  return `${String(hours).padStart(2, "0")}:${match[2]}`;
+}
+
 /** Today's local date as an ISO "YYYY-MM-DD" string, without the UTC-shift risk of Date#toISOString. */
 export function todayIso(): string {
   const d = new Date();

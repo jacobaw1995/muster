@@ -20,6 +20,7 @@ function toMusterEvent(
     title: row.title,
     category: row.category,
     organizer: row.organizer,
+    createdBy: row.created_by,
     location: row.location,
     street: row.street,
     city: row.city,
@@ -149,4 +150,60 @@ export async function createEvent(input: NewEventInput): Promise<MusterEvent> {
     .single();
   if (error) throw error;
   return toMusterEvent(data, 0, 0);
+}
+
+/**
+ * Editable fields for an existing event (Phase 10) — deliberately excludes
+ * `organizer` (never exposed as an editable field anywhere in the UI) and
+ * `created_by` (ownership never changes). RLS's "owners can update their
+ * own event" policy (created_by = auth.uid()) is what actually enforces
+ * this is only callable by the creator — the UI just doesn't show the
+ * controls to anyone else.
+ */
+export type UpdateEventInput = Omit<NewEventInput, "organizer">;
+
+/**
+ * Updates in place — never creates a new row. Returns the fresh row via
+ * toMusterEvent(..., 0, 0); the going/maybe live-count deltas are zeroed
+ * here because this function has no rsvps context of its own — callers
+ * (see SessionContext.updateEvent) merge the *existing* live-merged
+ * goingCount/maybeCount back on top, since an edit never touches RSVPs.
+ */
+export async function updateEvent(
+  id: string,
+  input: UpdateEventInput,
+): Promise<MusterEvent> {
+  const { data, error } = await supabase
+    .from("events")
+    .update({
+      title: input.title,
+      category: input.category,
+      location: input.location,
+      street: input.street,
+      city: input.city,
+      state: input.state,
+      zip: input.zip,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      date: input.date,
+      time: input.time,
+      duration_label: input.durationLabel,
+      duration_minutes: input.durationMinutes,
+      cost: input.cost,
+      capacity: input.capacity,
+      notes: input.notes,
+      website: input.website,
+      photo_url: input.photoUrl,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return toMusterEvent(data, 0, 0);
+}
+
+/** RLS ("owners can delete their own event") is what actually enforces ownership — rsvps/itinerary_items/impact_logs all reference events with ON DELETE CASCADE, so this cleanly removes an event's child rows too (see the initial_schema migration). */
+export async function deleteEvent(id: string): Promise<void> {
+  const { error } = await supabase.from("events").delete().eq("id", id);
+  if (error) throw error;
 }

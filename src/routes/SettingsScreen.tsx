@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CloseButton, ModalShell } from "../components/ModalShell";
 import { PhotoSlot } from "../components/PhotoSlot";
 import { Switch } from "../components/Switch";
 import { CalendarIcon } from "../components/icons";
+import { eventDateRange } from "../lib/calendar";
+import { fmtDateLabel } from "../lib/format";
 import { uploadAvatar } from "../lib/api/storage";
 import { useSession } from "../state/SessionContext";
 import { useTheme } from "../theme/ThemeContext";
@@ -23,17 +26,21 @@ export default function SettingsScreen() {
     auth,
     userId,
     loading,
+    events,
     eventReminders,
     newEventsNearby,
     setEventReminders,
     setNewEventsNearby,
     updateProfile,
+    deleteEvent,
     signOut,
   } = useSession();
   const { showToast } = useToast();
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [nameDraft, setNameDraft] = useState(auth.name ?? "");
   const [savingName, setSavingName] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState(false);
 
   // Keeps the draft in sync if the real name changes from elsewhere (e.g.
   // Sign Up's stashed name landing right after this mounts), unless the
@@ -87,6 +94,29 @@ export default function SettingsScreen() {
       showToast("Couldn't upload photo — try again");
     } finally {
       setAvatarUploading(false);
+    }
+  };
+
+  const yourEvents = events
+    .filter((ev) => ev.createdBy === userId)
+    .slice()
+    .sort(
+      (a, b) =>
+        eventDateRange(a).start.getTime() - eventDateRange(b).start.getTime(),
+    );
+
+  const handleDeleteEvent = async () => {
+    if (!deleteTargetId || deletingEvent) return;
+    setDeletingEvent(true);
+    try {
+      await deleteEvent(deleteTargetId);
+      showToast("Event deleted");
+      setDeleteTargetId(null);
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't delete this event — try again");
+    } finally {
+      setDeletingEvent(false);
     }
   };
 
@@ -157,6 +187,45 @@ export default function SettingsScreen() {
             {savingName ? "SAVING…" : "SAVE"}
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className={sectionLabelClass}>YOUR EVENTS</div>
+        {yourEvents.length === 0 ? (
+          <div className="rounded-card border border-line bg-card p-[13px] font-sans text-[12.5px] font-medium text-ink-dim">
+            You haven't posted any events yet.
+          </div>
+        ) : (
+          yourEvents.map((ev) => (
+            <div
+              key={ev.id}
+              className="flex items-center gap-2 rounded-card border border-line bg-card p-[13px]"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-sans text-[13px] font-bold text-ink">
+                  {ev.title}
+                </div>
+                <div className="font-mono text-[10.5px] font-semibold text-ink-dim">
+                  {fmtDateLabel(ev.date)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate(`/events/${ev.id}/edit`)}
+                className="flex-none rounded-[8px] border border-line bg-card-alt px-2.5 py-1.5 font-sans text-[10.5px] font-bold text-ink"
+              >
+                EDIT
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteTargetId(ev.id)}
+                className="flex-none rounded-[8px] border border-danger bg-transparent px-2.5 py-1.5 font-sans text-[10.5px] font-bold text-danger"
+              >
+                DELETE
+              </button>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -233,6 +302,16 @@ export default function SettingsScreen() {
           LOG OUT
         </button>
       </div>
+
+      <ConfirmDialog
+        open={deleteTargetId != null}
+        title="Delete this event?"
+        message="This can't be undone. Its RSVPs, itinerary entries, and impact logs go with it."
+        confirmLabel="DELETE"
+        busy={deletingEvent}
+        onConfirm={handleDeleteEvent}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </ModalShell>
   );
 }

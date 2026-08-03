@@ -20,6 +20,7 @@ export default function App() {
           <Route path="/impact" element={<ImpactScreen />} />
           <Route path="/itinerary" element={<ItineraryScreen />} />
           <Route path="/events/:id" element={<EventDetailScreen />} />
+          <Route path="/events/:id/edit" element={<CreateScreen />} />
         </Route>
         <Route element={<ModalLayout />}>
           <Route path="/sign-in" element={<SignInScreen />} />

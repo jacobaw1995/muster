@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState } from "../components/ErrorState";
 import { PhotoSlot } from "../components/PhotoSlot";
 import { ShareSheet } from "../components/ShareSheet";
@@ -68,9 +69,13 @@ export default function EventDetailScreen() {
     loadError,
     retryLoad,
     userLocation,
+    userId,
+    deleteEvent,
   } = useSession();
   const { showToast } = useToast();
   const [shareOpen, setShareOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const event = events.find((e) => e.id === id);
   // While the initial fetch is still in flight `events` is empty, so a
@@ -131,6 +136,28 @@ export default function EventDetailScreen() {
   const goBack = () => navigate(backTarget);
 
   const shareUrl = `${window.location.origin}/events/${event.id}`;
+
+  // Works for anonymous creators too — created_by defaults to auth.uid() at
+  // insert time (see the auth_rls migration) regardless of whether that
+  // session is anonymous or permanent, and it persists across reloads on
+  // the same device via the Supabase client's own session storage.
+  const isOwner = userId != null && event.createdBy === userId;
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await deleteEvent(event.id);
+      showToast("Event deleted");
+      navigate("/");
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't delete this event — try again");
+      setDeleteOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleRsvpYes = () => {
     if (yesBlocked) return;
@@ -200,6 +227,25 @@ export default function EventDetailScreen() {
             Hosted by {event.organizer}
           </div>
         </div>
+
+        {isOwner && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate(`/events/${event.id}/edit`)}
+              className="flex-1 rounded-input border-[1.5px] border-line bg-card p-3 font-sans text-[12.5px] font-bold text-ink"
+            >
+              EDIT EVENT
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              className="flex-1 rounded-input border-[1.5px] border-danger bg-transparent p-3 font-sans text-[12.5px] font-bold text-danger"
+            >
+              DELETE
+            </button>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2.5 rounded-card border border-line bg-card px-4 py-3.5">
           <div className="flex items-start gap-2.5">
@@ -349,6 +395,16 @@ export default function EventDetailScreen() {
         event={event}
         shareUrl={shareUrl}
         onCopyLink={handleCopyLink}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete this event?"
+        message="This can't be undone. Its RSVPs, itinerary entries, and impact logs go with it."
+        confirmLabel="DELETE"
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteOpen(false)}
       />
     </div>
   );

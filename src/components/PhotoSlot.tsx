@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { PhotoIcon } from "./icons";
+import { PhotoIcon, XIcon } from "./icons";
 
 interface PhotoSlotProps {
   photoUrl: string | null;
@@ -8,6 +8,8 @@ interface PhotoSlotProps {
   /** When provided, the slot becomes a click-to-upload control (a transparent file input laid over the slot). Omit for read-only display. */
   onSelectFile?: (file: File) => void;
   uploading?: boolean;
+  /** When provided (and a photo is set), shows a small remove button that clears the photo without opening the file picker. */
+  onRemove?: () => void;
 }
 
 export function PhotoSlot({
@@ -16,6 +18,7 @@ export function PhotoSlot({
   className = "",
   onSelectFile,
   uploading,
+  onRemove,
 }: PhotoSlotProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -38,6 +41,19 @@ export function PhotoSlot({
       <div className={`relative overflow-hidden ${className}`}>
         <img src={photoUrl} alt="" className="h-full w-full object-cover" />
         {fileInput}
+        {onRemove && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            aria-label="Remove photo"
+            className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border-none bg-black/60 text-white"
+          >
+            <XIcon size={12} />
+          </button>
+        )}
       </div>
     );
   }

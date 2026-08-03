@@ -18,9 +18,12 @@ import { hadAuthRedirectHash, supabase } from "../lib/supabase";
 import type { MusterEvent, RsvpStatus } from "../lib/mockEvents";
 import {
   createEvent as apiCreateEvent,
+  deleteEvent as apiDeleteEvent,
   getEvent as apiGetEvent,
   listEvents,
+  updateEvent as apiUpdateEvent,
   type NewEventInput,
+  type UpdateEventInput,
 } from "../lib/api/events";
 import {
   linkOrSignInWithOAuth,
@@ -60,6 +63,7 @@ import { useToast } from "./ToastContext";
 export type {
   LoggedForEntry,
   NewEventInput,
+  UpdateEventInput,
   OAuthProvider,
   OrgImpactTotals,
   PersonalImpactTotals,
@@ -176,6 +180,10 @@ interface SessionContextValue {
 
   /** Inserts a new event row and prepends it to `events`. Returns the created row (with its DB-generated id) so callers can immediately RSVP/add-to-itinerary against it. */
   addEvent: (input: NewEventInput) => Promise<MusterEvent>;
+  /** Updates an existing event in place (never creates a new row) — RLS restricts this to the event's own creator. Preserves the live-merged goingCount/maybeCount already in state, since editing never touches RSVPs. */
+  updateEvent: (id: string, input: UpdateEventInput) => Promise<MusterEvent>;
+  /** Deletes an event — RLS restricts this to its creator. rsvps/itinerary_items/impact_logs cascade server-side; this also prunes the id from local itinerary/rsvp state so nothing ghosts in the UI before the next reload. */
+  deleteEvent: (id: string) => Promise<void>;
   /** Toggles the given status on; tapping the already-active status clears it. Persists in the background. */
   setRsvp: (eventId: string, status: Exclude<RsvpStatus, null>) => void;
   addToItinerary: (eventId: string) => void;
@@ -439,6 +447,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return created;
   }, []);
 
+  const updateEvent = useCallback(
+    async (id: string, input: UpdateEventInput) => {
+      const updated = await apiUpdateEvent(id, input);
+      setEvents((prev) =>
+        prev.map((ev) =>
+          ev.id === id
+            ? { ...updated, goingCount: ev.goingCount, maybeCount: ev.maybeCount }
+            : ev,
+        ),
+      );
+      return updated;
+    },
+    [],
+  );
+
+  const deleteEvent = useCallback(async (id: string) => {
+    await apiDeleteEvent(id);
+    setEvents((prev) => prev.filter((ev) => ev.id !== id));
+    setItinerary((prev) => prev.filter((eventId) => eventId !== id));
+    setRsvpMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
   const setRsvp = useCallback(
     (eventId: string, status: Exclude<RsvpStatus, null>) => {
       const prevStatus = rsvp[eventId] ?? null;
@@ -664,6 +699,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       locationStatus,
       requestLocation,
       addEvent,
+      updateEvent,
+      deleteEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,
@@ -703,6 +740,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       locationStatus,
       requestLocation,
       addEvent,
+      updateEvent,
+      deleteEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,

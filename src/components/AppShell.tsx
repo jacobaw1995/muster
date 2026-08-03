@@ -7,7 +7,7 @@ import { PhoneFrame } from "./PhoneFrame";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 
-const PANEL_ROUTE_PATTERN = /^\/(create|events\/[^/]+)$/;
+const PANEL_ROUTE_PATTERN = /^\/(create|events\/[^/]+(\/edit)?)$/;
 
 /**
  * Layout for the 4 primary tab destinations (+ Event Detail). Each screen

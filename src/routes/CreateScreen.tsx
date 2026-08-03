@@ -1,14 +1,22 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { BasicsStep } from "../components/create/BasicsStep";
 import { CategoryStep } from "../components/create/CategoryStep";
 import { DetailsStep } from "../components/create/DetailsStep";
 import { ReviewStep } from "../components/create/ReviewStep";
 import { ChevronLeftIcon, XIcon } from "../components/icons";
 import { geocodeAddress } from "../lib/api/geocode";
-import { resolveDuration } from "../lib/duration";
-import { formatTimeOfDay, todayIso } from "../lib/format";
-import type { NewEventInput } from "../state/SessionContext";
+import {
+  deriveDurationSelection,
+  resolveDuration,
+} from "../lib/duration";
+import {
+  formatTimeOfDay,
+  parseTimeOfDayTo24h,
+  todayIso,
+} from "../lib/format";
+import { CATEGORY_ORDER, type MusterEvent } from "../lib/mockEvents";
+import type { NewEventInput, UpdateEventInput } from "../state/SessionContext";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
 
@@ -59,13 +67,73 @@ const INITIAL_FORM: CreateFormState = {
   going: true,
 };
 
+/** Reverse of the field-building in handleSubmit — reconstructs the Create form's shape from a stored event (Phase 10 edit flow). */
+function formFromEvent(event: MusterEvent): CreateFormState {
+  const isBuiltIn = (CATEGORY_ORDER as string[]).includes(event.category);
+  const duration = deriveDurationSelection(
+    event.durationLabel,
+    event.durationMinutes,
+  );
+  return {
+    category: isBuiltIn ? event.category : "custom",
+    customCategory: isBuiltIn ? "" : event.category,
+    title: event.title,
+    venueName: event.location ?? "",
+    street: event.street ?? "",
+    city: event.city ?? "",
+    state: event.state ?? "",
+    zip: event.zip ?? "",
+    date: event.date,
+    time: parseTimeOfDayTo24h(event.time),
+    durationChoice: duration.durationChoice,
+    durationCustomHours: duration.durationCustomHours,
+    cost: event.cost === "FREE" ? "" : event.cost,
+    capacity: event.capacity != null ? String(event.capacity) : "",
+    notes: event.notes,
+    website: event.website ?? "",
+    photoUrl: event.photoUrl,
+    going: true,
+  };
+}
+
 export default function CreateScreen() {
+  const { id: editId } = useParams();
   const navigate = useNavigate();
-  const { addEvent, setRsvp, addToItinerary } = useSession();
+  const {
+    events,
+    loading,
+    addEvent,
+    updateEvent,
+    setRsvp,
+    addToItinerary,
+  } = useSession();
   const { showToast } = useToast();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM);
   const [posting, setPosting] = useState(false);
+
+  const isEditMode = Boolean(editId);
+  const editingEvent = editId ? events.find((e) => e.id === editId) : undefined;
+
+  const prefilledRef = useRef(false);
+  const originalAddressRef = useRef<{
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isEditMode || prefilledRef.current || !editingEvent) return;
+    prefilledRef.current = true;
+    setForm(formFromEvent(editingEvent));
+    originalAddressRef.current = {
+      street: editingEvent.street ?? "",
+      city: editingEvent.city ?? "",
+      state: editingEvent.state ?? "",
+      zip: editingEvent.zip ?? "",
+    };
+  }, [isEditMode, editingEvent]);
 
   const update = (patch: Partial<CreateFormState>) =>
     setForm((prev) => ({ ...prev, ...patch }));
@@ -76,9 +144,39 @@ export default function CreateScreen() {
   };
 
   const handleClose = () => {
+    if (isEditMode && editId) {
+      navigate(`/events/${editId}`);
+      return;
+    }
     resetForm();
     navigate("/");
   };
+
+  // Hooks above this line run unconditionally on every render (Rules of
+  // Hooks) — the edit-mode loading/not-found states below are plain early
+  // returns, same pattern as EventDetailScreen/SettingsScreen.
+  if (isEditMode && loading) {
+    return null;
+  }
+  if (isEditMode && !loading && !editingEvent) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-[30px] text-center">
+        <div className="font-sans text-sm font-bold text-ink">
+          Event not found
+        </div>
+        <div className="font-sans text-xs font-medium text-ink-dim">
+          This link may have expired, or the event was removed.
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="rounded-[10px] border-none bg-signal px-[22px] py-3 font-sans text-[12.5px] font-bold tracking-[0.03em] text-signal-on"
+        >
+          BACK TO MAP
+        </button>
+      </div>
+    );
+  }
 
   const nextDisabled =
     (step === 0 && !form.category) ||
@@ -87,7 +185,7 @@ export default function CreateScreen() {
 
   const handleBack = () => setStep((s) => Math.max(0, s - 1));
 
-  const handlePost = async () => {
+  const handleSubmit = async () => {
     if (posting) return;
     setPosting(true);
     const isCustom = form.category === "custom";
@@ -102,31 +200,49 @@ export default function CreateScreen() {
     const capacityNum = form.capacity.trim()
       ? Number(form.capacity.trim())
       : NaN;
-
-    // Geocoded once, here, at creation time — never per map render (see
-    // supabase/functions/geocode). A failure never blocks posting: the
-    // event just goes live without a map pin or real distance until it's
-    // re-geocoded.
-    const geo = await geocodeAddress({
-      street: form.street.trim() || undefined,
-      city: form.city.trim(),
-      state: form.state.trim(),
-      zip: form.zip.trim() || undefined,
-    });
-
     const duration = resolveDuration(form.durationChoice, form.durationCustomHours);
 
-    const input: NewEventInput = {
+    const original = originalAddressRef.current;
+    const addressChanged =
+      !isEditMode ||
+      !original ||
+      form.street.trim() !== original.street ||
+      form.city.trim() !== original.city ||
+      form.state.trim() !== original.state ||
+      form.zip.trim() !== original.zip;
+
+    // Geocoded only when the address actually changed (or it's a brand-new
+    // event) — never per render, never a wasted call on an unchanged
+    // address. A failure never blocks saving: the event just keeps
+    // whatever pin it had (or none) until re-geocoded.
+    let latitude: number | null = null;
+    let longitude: number | null = null;
+    let geoFailed = false;
+    if (addressChanged) {
+      const geo = await geocodeAddress({
+        street: form.street.trim() || undefined,
+        city: form.city.trim(),
+        state: form.state.trim(),
+        zip: form.zip.trim() || undefined,
+      });
+      latitude = geo?.lat ?? null;
+      longitude = geo?.lng ?? null;
+      geoFailed = !geo;
+    } else if (editingEvent) {
+      latitude = editingEvent.latitude;
+      longitude = editingEvent.longitude;
+    }
+
+    const payload: UpdateEventInput = {
       title: form.title.trim() || "Untitled event",
       category,
-      organizer: "You",
       location: form.venueName.trim() || null,
       street: form.street.trim() || null,
       city: form.city.trim(),
       state: form.state.trim(),
       zip: form.zip.trim() || null,
-      latitude: geo?.lat ?? null,
-      longitude: geo?.lng ?? null,
+      latitude,
+      longitude,
       date: form.date || todayIso(),
       time: form.time ? formatTimeOfDay(form.time) : "12:00 PM",
       durationLabel: duration.label,
@@ -139,21 +255,32 @@ export default function CreateScreen() {
     };
 
     try {
-      const created = await addEvent(input);
-      if (form.going) {
-        setRsvp(created.id, "yes");
-        addToItinerary(created.id);
+      if (isEditMode && editId) {
+        await updateEvent(editId, payload);
+        showToast(
+          geoFailed ? "Changes saved — couldn't re-pin the new address yet" : "Changes saved",
+        );
+        navigate(`/events/${editId}`);
+      } else {
+        const input: NewEventInput = { ...payload, organizer: "You" };
+        const created = await addEvent(input);
+        if (form.going) {
+          setRsvp(created.id, "yes");
+          addToItinerary(created.id);
+        }
+        showToast(
+          geoFailed ? "Event posted — couldn't pin it on the map yet" : "Event posted — live now",
+        );
+        resetForm();
+        navigate("/");
       }
-      showToast(
-        geo
-          ? "Event posted — live now"
-          : "Event posted — couldn't pin it on the map yet",
-      );
-      resetForm();
-      navigate("/");
     } catch (err) {
       console.error(err);
-      showToast("Couldn't post your event — try again");
+      showToast(
+        isEditMode
+          ? "Couldn't save changes — try again"
+          : "Couldn't post your event — try again",
+      );
     } finally {
       setPosting(false);
     }
@@ -164,7 +291,7 @@ export default function CreateScreen() {
       setStep((s) => s + 1);
       return;
     }
-    void handlePost();
+    void handleSubmit();
   };
 
   return (
@@ -179,7 +306,9 @@ export default function CreateScreen() {
           >
             <XIcon size={15} />
           </button>
-          <div className="font-display text-[22px] text-ink">POST AN EVENT</div>
+          <div className="font-display text-[22px] text-ink">
+            {isEditMode ? "EDIT EVENT" : "POST AN EVENT"}
+          </div>
           <span className="font-mono text-[10px] font-semibold text-ink-dim">
             STEP {step + 1} OF {TOTAL_STEPS}
           </span>
@@ -200,7 +329,9 @@ export default function CreateScreen() {
         {step === 0 && <CategoryStep form={form} onChange={update} />}
         {step === 1 && <BasicsStep form={form} onChange={update} />}
         {step === 2 && <DetailsStep form={form} onChange={update} />}
-        {step === 3 && <ReviewStep form={form} onChange={update} />}
+        {step === 3 && (
+          <ReviewStep form={form} onChange={update} isEditMode={isEditMode} />
+        )}
       </div>
 
       <div className="flex flex-none gap-2.5 bg-bg px-5 pb-24 pt-3">
@@ -223,8 +354,12 @@ export default function CreateScreen() {
           {step < TOTAL_STEPS - 1
             ? "CONTINUE"
             : posting
-              ? "POSTING…"
-              : "POST EVENT"}
+              ? isEditMode
+                ? "SAVING…"
+                : "POSTING…"
+              : isEditMode
+                ? "SAVE CHANGES"
+                : "POST EVENT"}
         </button>
       </div>
     </div>

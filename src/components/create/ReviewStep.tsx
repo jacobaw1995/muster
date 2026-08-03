@@ -7,9 +7,11 @@ import type { CreateFormState } from "../../routes/CreateScreen";
 interface ReviewStepProps {
   form: CreateFormState;
   onChange: (patch: Partial<CreateFormState>) => void;
+  /** Hides the initial-RSVP toggle — editing an event's details shouldn't also silently change the editor's own RSVP. */
+  isEditMode?: boolean;
 }
 
-export function ReviewStep({ form, onChange }: ReviewStepProps) {
+export function ReviewStep({ form, onChange, isEditMode = false }: ReviewStepProps) {
   const isCustom = form.category === "custom";
   const meta = getCategoryMeta(form.category);
   const catLabel = isCustom
@@ -55,19 +57,21 @@ export function ReviewStep({ form, onChange }: ReviewStepProps) {
         </div>
       </div>
 
-      <div
-        onClick={() => onChange({ going: !form.going })}
-        className="flex cursor-pointer items-center justify-between rounded-card border border-line bg-card p-3.5"
-      >
-        <span className="font-sans text-[13px] font-bold text-ink">
-          Am I going?
-        </span>
-        <Switch
-          checked={form.going}
-          onCheckedChange={() => onChange({ going: !form.going })}
-          ariaLabel="Am I going?"
-        />
-      </div>
+      {!isEditMode && (
+        <div
+          onClick={() => onChange({ going: !form.going })}
+          className="flex cursor-pointer items-center justify-between rounded-card border border-line bg-card p-3.5"
+        >
+          <span className="font-sans text-[13px] font-bold text-ink">
+            Am I going?
+          </span>
+          <Switch
+            checked={form.going}
+            onCheckedChange={() => onChange({ going: !form.going })}
+            ariaLabel="Am I going?"
+          />
+        </div>
+      )}
     </div>
   );
 }

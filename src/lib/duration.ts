@@ -48,3 +48,32 @@ export function resolveDuration(
   if (!preset) return { label: "2 hours", minutes: 120 };
   return { label: preset.label, minutes: preset.minutes };
 }
+
+export interface DurationSelection {
+  durationChoice: string;
+  durationCustomHours: string;
+}
+
+/**
+ * The inverse of resolveDuration — given a stored event's duration_label/
+ * duration_minutes (Phase 10 edit flow), reconstructs which preset (or
+ * custom hours value) the Create form should show pre-selected.
+ */
+export function deriveDurationSelection(
+  durationLabel: string,
+  durationMinutes: number | null,
+): DurationSelection {
+  const preset = DURATION_PRESETS.find((p) => p.label === durationLabel);
+  if (preset) return { durationChoice: preset.key, durationCustomHours: "" };
+  if (durationMinutes != null && durationMinutes > 0) {
+    const hours = durationMinutes / 60;
+    return {
+      durationChoice: CUSTOM_DURATION_KEY,
+      durationCustomHours: String(hours),
+    };
+  }
+  // Doesn't match a preset label and there's no minutes to derive hours
+  // from (e.g. a blank "Custom…" was saved as "TBD" — see resolveDuration)
+  // — the TBD preset is the closest honest fallback.
+  return { durationChoice: "tbd", durationCustomHours: "" };
+}

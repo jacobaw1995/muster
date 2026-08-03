@@ -54,6 +54,8 @@ export interface MusterEvent {
   title: string;
   category: CategoryKey | (string & {});
   organizer: string;
+  /** auth.uid() of the poster (anonymous or permanent) — null for the original seeded rows, which nobody owns. Drives the Edit/Delete controls on Detail and the "Your Events" list in Settings. */
+  createdBy: string | null;
   /** Optional venue/label, e.g. "Basin Park trailhead" — city/state below are what's actually geocoded. */
   location: string | null;
   street: string | null;
