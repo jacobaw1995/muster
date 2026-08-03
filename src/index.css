@@ -1,0 +1,110 @@
+@import url("https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+/*
+  Tailwind v4 theme mapping — every semantic color/radius token below is
+  wired to the CSS custom properties in styles/tokens.css, so `bg-bg`,
+  `text-ink`, `border-line`, `bg-accent`, `text-signal`, etc. all repaint
+  automatically when [data-theme] flips between dark/light. Never hardcode
+  a hex value in a component — add a token here instead.
+*/
+@theme {
+  --font-display: "Anton", sans-serif;
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-card: var(--card);
+  --color-card-alt: var(--card-alt);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-dim: var(--ink-dim);
+  --color-accent: var(--accent);
+  --color-accent-on: var(--accent-on);
+  --color-signal: var(--signal);
+  --color-signal-on: var(--signal-on);
+  --color-warn: var(--warn);
+  --color-warn-on: var(--warn-on);
+  --color-danger: var(--danger);
+  --color-danger-on: var(--danger-on);
+
+  --color-map-land: var(--map-land);
+  --color-map-water: var(--map-water);
+  --color-map-park: var(--map-park);
+  --color-map-road: var(--map-road);
+  --color-map-road-main: var(--map-road-main);
+  --color-map-label: var(--map-label);
+
+  --color-cat-ruck: var(--cat-ruck);
+  --color-cat-cleanup: var(--cat-cleanup);
+  --color-cat-fitness: var(--cat-fitness);
+  --color-cat-training: var(--cat-training);
+  --color-cat-music: var(--cat-music);
+  --color-cat-social: var(--cat-social);
+  --color-cat-custom: var(--cat-custom);
+
+  --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
+  --radius-input: var(--radius-input);
+  --radius-button: var(--radius-button);
+  --radius-sheet: var(--radius-sheet);
+
+  --spacing-screen: var(--screen-padding);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg2);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

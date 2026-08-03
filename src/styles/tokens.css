@@ -1,0 +1,114 @@
+/*
+  MUSTER design tokens — Operator Standard.
+  Dark is the default/primary theme; [data-theme="light"] overrides.
+  Source: design_handoff_muster_events_app/README.md "Global Design Tokens".
+*/
+
+:root {
+  /* dark theme (default) */
+  --bg: #0e0f0c;
+  --bg2: #17190f;
+  --card: #1b1e13;
+  --card-alt: #22261a;
+  --line: rgba(245, 243, 234, 0.14);
+  --ink: #f5f3ea;
+  --ink-dim: #a3a394;
+  --accent: #9caf58;
+  --accent-on: #12140c;
+  --signal: #ff6a2b;
+  --signal-on: #1b0700;
+  /* RSVP MAYBE/NO states — not in the Phase 0 README token table, but
+     present in the design file's own style tile ("warn" swatch) and used
+     directly by the RSVP control. Added here so Detail never hardcodes hex. */
+  --warn: #e8b923;
+  --warn-on: #1b1500;
+  --danger: #c0554a;
+  --danger-on: #ffffff;
+
+  --map-land: #1c1e14;
+  --map-water: #12191d;
+  --map-park: #1e2417;
+  --map-road: #2e3122;
+  --map-road-main: #454833;
+  --map-label: #8f8f78;
+
+  /* category colors — dots/badges only */
+  --cat-ruck: #9caf58;
+  --cat-cleanup: #5fa88c;
+  --cat-fitness: #d98a3d;
+  --cat-training: #c0392b;
+  --cat-music: #b08d57;
+  --cat-social: #6e8aa6;
+  --cat-custom: #8f8f78;
+
+  /* spacing / radii */
+  --radius-card: 14px;
+  --radius-pill: 999px;
+  --radius-input: 11px;
+  --radius-button: 11px;
+  /* bottom-sheet top corners — distinct from --radius-card per the design file */
+  --radius-sheet: 20px;
+  --screen-padding: 18px;
+
+  /* phone frame */
+  --frame-width: 390px;
+  --frame-height: 844px;
+  --frame-bezel-radius: 52px;
+  --frame-screen-radius: 38px;
+  --frame-bezel-padding: 14px;
+}
+
+:root[data-theme="light"] {
+  --bg: #f2efe6;
+  --bg2: #e9e5d8;
+  --card: #ffffff;
+  --card-alt: #f5f2ea;
+  --line: rgba(20, 21, 15, 0.13);
+  --ink: #15160f;
+  --ink-dim: #63634f;
+  --accent: #5c6b34;
+  --accent-on: #ffffff;
+  --signal: #e35b1f;
+  --signal-on: #ffffff;
+  --warn: #b8860b;
+  --warn-on: #1b1500;
+  --danger: #c0554a;
+  --danger-on: #ffffff;
+
+  --map-land: #f2efe4;
+  --map-water: #cfe1e8;
+  --map-park: #dde8ca;
+  --map-road: #ffffff;
+  --map-road-main: #ecd9a0;
+  --map-label: #6b6b58;
+}
+
+/* Respect OS preference only when the user has not made an explicit choice yet.
+   ThemeContext stamps data-theme on <html> as soon as it mounts, so this is
+   just the pre-hydration / no-JS fallback. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f2efe6;
+    --bg2: #e9e5d8;
+    --card: #ffffff;
+    --card-alt: #f5f2ea;
+    --line: rgba(20, 21, 15, 0.13);
+    --ink: #15160f;
+    --ink-dim: #63634f;
+    --accent: #5c6b34;
+    --accent-on: #ffffff;
+    --signal: #e35b1f;
+    --signal-on: #ffffff;
+    --warn: #b8860b;
+    --warn-on: #1b1500;
+    --danger: #c0554a;
+    --danger-on: #ffffff;
+
+    --map-land: #f2efe4;
+    --map-water: #cfe1e8;
+    --map-park: #dde8ca;
+    --map-road: #ffffff;
+    --map-road-main: #ecd9a0;
+    --map-label: #6b6b58;
+  }
+}

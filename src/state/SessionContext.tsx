@@ -1,0 +1,666 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import type { Session, User } from "@supabase/supabase-js";
+import {
+  DEFAULT_FILTERS,
+  type DateFilter,
+  type EventFilters,
+} from "../lib/filterEvents";
+import { supabase } from "../lib/supabase";
+import type { MusterEvent, RsvpStatus } from "../lib/mockEvents";
+import {
+  createEvent as apiCreateEvent,
+  getEvent as apiGetEvent,
+  listEvents,
+  type NewEventInput,
+} from "../lib/api/events";
+import {
+  linkOrSignInWithOAuth,
+  requestOtp as apiRequestOtp,
+  verifyOtp as apiVerifyOtp,
+  type OAuthProvider,
+} from "../lib/api/auth";
+import {
+  getOrgImpact,
+  getPersonalImpact,
+  logImpact as apiLogImpact,
+  type LoggedForEntry,
+  type OrgImpactTotals,
+  type PersonalImpactTotals,
+} from "../lib/api/impact";
+import {
+  addItinerary as apiAddItinerary,
+  listItinerary,
+  removeItinerary as apiRemoveItinerary,
+} from "../lib/api/itinerary";
+import { getProfile, upsertProfile } from "../lib/api/profiles";
+import {
+  clearRsvp,
+  listRsvpsForUser,
+  setRsvp as apiSetRsvp,
+} from "../lib/api/rsvps";
+import { useToast } from "./ToastContext";
+
+export type {
+  LoggedForEntry,
+  NewEventInput,
+  OAuthProvider,
+  OrgImpactTotals,
+  PersonalImpactTotals,
+};
+export { apiGetEvent as getEventById };
+
+export interface OrgImpactByPeriod {
+  year: OrgImpactTotals | null;
+  allTime: OrgImpactTotals | null;
+}
+
+const ZERO_PERSONAL_IMPACT: PersonalImpactTotals = {
+  bagsOfTrash: 0,
+  milesRucked: 0,
+  peopleHelped: 0,
+  eventsShowedUp: 0,
+};
+
+function summarizeAmounts(amounts: {
+  bags: number;
+  miles: number;
+  people: number;
+}) {
+  return (
+    [
+      amounts.bags ? `${amounts.bags} bags` : null,
+      amounts.miles ? `${amounts.miles} mi` : null,
+      amounts.people ? `${amounts.people} people` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "logged"
+  );
+}
+
+/**
+ * Real Supabase auth (Phase 3). Every visitor gets a session on first
+ * load — anonymous by default (see the bootstrap effect below), upgraded
+ * in place to a permanent identity via email/phone OTP or Google/Apple
+ * identity linking. Because the upgrade preserves auth.uid(), existing
+ * RSVPs/itinerary/impact carry over automatically — no data migration.
+ *
+ * `signedIn` means "has a permanent identity," not just "has a session"
+ * (an anonymous visitor always has a session).
+ */
+export interface AuthState {
+  signedIn: boolean;
+  name: string | null;
+  contact: string | null;
+  avatarUrl: string | null;
+}
+
+const SIGNED_OUT_AUTH: AuthState = {
+  signedIn: false,
+  name: null,
+  contact: null,
+  avatarUrl: null,
+};
+
+interface ProfileState {
+  name: string | null;
+  contact: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * Session-scoped app state shared across screens: RSVPs, itinerary, posted
+ * events, personal/org impact, real auth, and the active map/filter
+ * selection. Backed by Supabase — attribution comes from the session's
+ * auth.uid() (anonymous or permanent), enforced by per-owner RLS (see
+ * supabase/migrations/20260802040000_auth_rls.sql).
+ *
+ * TODO(Phase 4): anti-spam (rate limits, moderation, captcha) is still
+ * deferred — not addressed here.
+ */
+interface SessionContextValue {
+  /** All events from the DB, newest-created first. The single source of truth Map/Detail should read from. */
+  events: MusterEvent[];
+  rsvp: Record<string, RsvpStatus>;
+  itinerary: string[];
+  filters: EventFilters;
+  personalImpact: PersonalImpactTotals;
+  loggedFor: LoggedForEntry[];
+  orgImpact: OrgImpactByPeriod;
+  auth: AuthState;
+  eventReminders: boolean;
+  newEventsNearby: boolean;
+  /** True while the auth bootstrap and/or the initial Supabase fetch is in flight. */
+  loading: boolean;
+  /**
+   * Set when the initial read (events/rsvps/itinerary/impact/profile) fails
+   * — distinct from "loaded successfully with zero results." Screens should
+   * render a proper error state (icon + message + retry) instead of a
+   * blank or falsely-empty view. Background write failures do NOT set
+   * this — they show a toast and roll back instead (see setRsvp etc.).
+   */
+  loadError: string | null;
+  /** Re-runs the initial load after a `loadError`. */
+  retryLoad: () => void;
+  /** Current session's user id (anonymous or permanent) — null only until the bootstrap resolves. Handy for e.g. attributing storage uploads. */
+  userId: string | null;
+
+  /** Inserts a new event row and prepends it to `events`. Returns the created row (with its DB-generated id) so callers can immediately RSVP/add-to-itinerary against it. */
+  addEvent: (input: NewEventInput) => Promise<MusterEvent>;
+  /** Toggles the given status on; tapping the already-active status clears it. Persists in the background. */
+  setRsvp: (eventId: string, status: Exclude<RsvpStatus, null>) => void;
+  addToItinerary: (eventId: string) => void;
+  removeFromItinerary: (eventId: string) => void;
+  toggleItinerary: (eventId: string) => void;
+  /** Adds the given amounts to personal totals, +1 to eventsShowedUp, appends a LOGGED FOR row, and persists in the background. */
+  logImpact: (
+    eventId: string,
+    amounts: { bags: number; miles: number; people: number },
+  ) => void;
+
+  /** Requests a one-time code for the given email or phone. */
+  requestOtp: (contact: string) => Promise<void>;
+  /** Verifies the code from `requestOtp`. On success the session becomes (or stays) permanent, preserving the same uid. `name` is upserted onto the profile if provided (Sign Up). */
+  verifyOtp: (contact: string, token: string, name?: string) => Promise<void>;
+  /** Google/Apple — upgrades the anonymous session in place (or signs in normally if already permanent). Rejects without crashing if the provider isn't configured yet in the dashboard. */
+  linkOAuth: (provider: OAuthProvider) => Promise<void>;
+  /** Updates the caller's own profile row (name/contact/avatarUrl) — fields left undefined are untouched. */
+  updateProfile: (patch: {
+    name?: string;
+    contact?: string;
+    avatarUrl?: string;
+  }) => Promise<void>;
+  /** Signs out, then immediately re-establishes a fresh anonymous session so browsing keeps working signed-out. */
+  signOut: () => Promise<void>;
+  setEventReminders: (value: boolean) => void;
+  setNewEventsNearby: (value: boolean) => void;
+
+  setSearch: (value: string) => void;
+  toggleCategory: (key: string) => void;
+  setFreeOnly: (value: boolean) => void;
+  setDateFilter: (value: DateFilter) => void;
+  setDateFrom: (value: string) => void;
+  setDateTo: (value: string) => void;
+  setRadius: (mi: number) => void;
+  clearFilters: () => void;
+}
+
+const SessionContext = createContext<SessionContextValue | null>(null);
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<ProfileState | null>(null);
+
+  const [events, setEvents] = useState<MusterEvent[]>([]);
+  const [rsvp, setRsvpMap] = useState<Record<string, RsvpStatus>>({});
+  const [itinerary, setItinerary] = useState<string[]>([]);
+  const [filters, setFilters] = useState<EventFilters>(DEFAULT_FILTERS);
+  const [personalImpact, setPersonalImpact] = useState<PersonalImpactTotals>(
+    ZERO_PERSONAL_IMPACT,
+  );
+  const [loggedFor, setLoggedFor] = useState<LoggedForEntry[]>([]);
+  const [orgImpact, setOrgImpact] = useState<OrgImpactByPeriod>({
+    year: null,
+    allTime: null,
+  });
+  const [eventReminders, setEventReminders] = useState(true);
+  const [newEventsNearby, setNewEventsNearby] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { showToast } = useToast();
+
+  const user: User | null = session?.user ?? null;
+  const userId = user?.id ?? null;
+  // Deliberately NOT `?? true` — if there's no session at all (e.g. the
+  // anonymous-sign-in bootstrap itself failed), OTP/OAuth should take the
+  // fresh sign-in path, not the "upgrade an anonymous session" path, which
+  // requires an active session to call and would just fail differently.
+  const isAnonymous = user?.is_anonymous === true;
+
+  // Bumped by retryLoad() — both effects below depend on it, so "try
+  // again" re-attempts whichever step actually failed (auth bootstrap or
+  // the data read) without the caller needing to know which one it was.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), []);
+
+  // Auth bootstrap: restore an existing session, or establish a fresh
+  // anonymous one so every visitor — signed in or not — has a real
+  // auth.uid(). Stays subscribed for the lifetime of the app so sign
+  // in/out/link events (including the redirect-back from Google/Apple)
+  // flow straight into state.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data.session) {
+        setSession(data.session);
+        return;
+      }
+      const { data: anon, error: anonError } =
+        await supabase.auth.signInAnonymously();
+      if (cancelled) return;
+      if (anonError) {
+        console.error(anonError);
+        setLoadError("Couldn't start a session. Check your connection.");
+        return;
+      }
+      setSession(anon.session);
+    }
+
+    bootstrap();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [loadAttempt]);
+
+  // Data load: events/rsvps/itinerary/impact/org totals/profile, once a
+  // real uid is available. Upgrading anonymous -> permanent keeps the same
+  // uid, so this deliberately does NOT need to re-run on that transition —
+  // existing rows are already attributed correctly.
+  useEffect(() => {
+    if (!userId) return;
+    const uid = userId;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [
+          loadedEvents,
+          loadedRsvp,
+          loadedItinerary,
+          personal,
+          orgYear,
+          orgAllTime,
+          loadedProfile,
+        ] = await Promise.all([
+          listEvents(uid),
+          listRsvpsForUser(uid),
+          listItinerary(uid),
+          getPersonalImpact(uid),
+          getOrgImpact("2026"),
+          getOrgImpact("all_time"),
+          getProfile(uid),
+        ]);
+        if (cancelled) return;
+
+        setEvents(loadedEvents);
+        setRsvpMap(loadedRsvp);
+        setItinerary(loadedItinerary);
+        setPersonalImpact(personal.totals);
+        setLoggedFor(
+          personal.logs.map((log) => ({
+            eventId: log.eventId,
+            eventTitle:
+              loadedEvents.find((e) => e.id === log.eventId)?.title ??
+              "Event",
+            summary: summarizeAmounts(log),
+          })),
+        );
+        setOrgImpact({ year: orgYear, allTime: orgAllTime });
+
+        if (loadedProfile) {
+          setProfile({
+            name: loadedProfile.name,
+            contact: loadedProfile.contact,
+            avatarUrl: loadedProfile.avatarUrl,
+          });
+        } else if (!isAnonymous) {
+          // Permanent user with no profile row yet — e.g. just linked
+          // Google/Apple, which doesn't go through our upsertProfile call
+          // itself. Auto-provision a minimal row from the auth identity.
+          const { data: userRes } = await supabase.auth.getUser();
+          const meta = userRes.user?.user_metadata as
+            | { full_name?: string; name?: string }
+            | undefined;
+          const created = await upsertProfile({
+            name: meta?.full_name ?? meta?.name ?? undefined,
+            contact: userRes.user?.email ?? userRes.user?.phone ?? undefined,
+          });
+          if (!cancelled) {
+            setProfile({
+              name: created.name,
+              contact: created.contact,
+              avatarUrl: created.avatarUrl,
+            });
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          setLoadError("Couldn't load events. Check your connection.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isAnonymous, loadAttempt]);
+
+  const addEvent = useCallback(async (input: NewEventInput) => {
+    const created = await apiCreateEvent(input);
+    setEvents((prev) => [created, ...prev]);
+    return created;
+  }, []);
+
+  const setRsvp = useCallback(
+    (eventId: string, status: Exclude<RsvpStatus, null>) => {
+      const prevStatus = rsvp[eventId] ?? null;
+      const turningOff = prevStatus === status;
+      const nextStatus: RsvpStatus = turningOff ? null : status;
+      setRsvpMap((prev) => ({ ...prev, [eventId]: nextStatus }));
+
+      const persist = turningOff ? clearRsvp(eventId) : apiSetRsvp(eventId, status);
+      persist.catch((err) => {
+        console.error(err);
+        setRsvpMap((prev) => ({ ...prev, [eventId]: prevStatus }));
+        showToast("Couldn't save your RSVP — try again");
+      });
+    },
+    [rsvp, showToast],
+  );
+
+  const addToItinerary = useCallback(
+    (eventId: string) => {
+      setItinerary((prev) =>
+        prev.includes(eventId) ? prev : [...prev, eventId],
+      );
+      apiAddItinerary(eventId).catch((err) => {
+        console.error(err);
+        setItinerary((prev) => prev.filter((id) => id !== eventId));
+        showToast("Couldn't update your itinerary — try again");
+      });
+    },
+    [showToast],
+  );
+
+  const removeFromItinerary = useCallback(
+    (eventId: string) => {
+      const wasPresent = itinerary.includes(eventId);
+      setItinerary((prev) => prev.filter((id) => id !== eventId));
+      apiRemoveItinerary(eventId).catch((err) => {
+        console.error(err);
+        if (wasPresent) {
+          setItinerary((prev) =>
+            prev.includes(eventId) ? prev : [...prev, eventId],
+          );
+        }
+        showToast("Couldn't update your itinerary — try again");
+      });
+    },
+    [itinerary, showToast],
+  );
+
+  const toggleItinerary = useCallback(
+    (eventId: string) => {
+      const has = itinerary.includes(eventId);
+      setItinerary((prev) =>
+        has ? prev.filter((id) => id !== eventId) : [...prev, eventId],
+      );
+      const persist = has ? apiRemoveItinerary(eventId) : apiAddItinerary(eventId);
+      persist.catch((err) => {
+        console.error(err);
+        setItinerary((prev) =>
+          has
+            ? prev.includes(eventId)
+              ? prev
+              : [...prev, eventId]
+            : prev.filter((id) => id !== eventId),
+        );
+        showToast("Couldn't update your itinerary — try again");
+      });
+    },
+    [itinerary, showToast],
+  );
+
+  const logImpact = useCallback(
+    (
+      eventId: string,
+      amounts: { bags: number; miles: number; people: number },
+    ) => {
+      setPersonalImpact((prev) => ({
+        bagsOfTrash: prev.bagsOfTrash + amounts.bags,
+        milesRucked: Math.round((prev.milesRucked + amounts.miles) * 10) / 10,
+        peopleHelped: prev.peopleHelped + amounts.people,
+        eventsShowedUp: prev.eventsShowedUp + 1,
+      }));
+      const event = events.find((e) => e.id === eventId);
+      const loggedForEntry: LoggedForEntry = {
+        eventId,
+        eventTitle: event?.title ?? "Event",
+        summary: summarizeAmounts(amounts),
+      };
+      setLoggedFor((prev) => [...prev, loggedForEntry]);
+
+      apiLogImpact(eventId, amounts).catch((err) => {
+        console.error(err);
+        setPersonalImpact((prev) => ({
+          bagsOfTrash: prev.bagsOfTrash - amounts.bags,
+          milesRucked:
+            Math.round((prev.milesRucked - amounts.miles) * 10) / 10,
+          peopleHelped: prev.peopleHelped - amounts.people,
+          eventsShowedUp: prev.eventsShowedUp - 1,
+        }));
+        setLoggedFor((prev) => prev.filter((entry) => entry !== loggedForEntry));
+        showToast("Couldn't save your impact log — try again");
+      });
+    },
+    [events, showToast],
+  );
+
+  const requestOtp = useCallback(
+    (contact: string) => apiRequestOtp(contact, isAnonymous),
+    [isAnonymous],
+  );
+
+  const verifyOtp = useCallback(
+    async (contact: string, token: string, name?: string) => {
+      const newSession = await apiVerifyOtp(contact, token, isAnonymous);
+      if (newSession) setSession(newSession);
+      const updated = await upsertProfile({ name, contact });
+      setProfile({
+        name: updated.name,
+        contact: updated.contact,
+        avatarUrl: updated.avatarUrl,
+      });
+    },
+    [isAnonymous],
+  );
+
+  const linkOAuth = useCallback(
+    (provider: OAuthProvider) => linkOrSignInWithOAuth(provider, isAnonymous),
+    [isAnonymous],
+  );
+
+  const updateProfile = useCallback(
+    async (patch: { name?: string; contact?: string; avatarUrl?: string }) => {
+      const updated = await upsertProfile(patch);
+      setProfile({
+        name: updated.name,
+        contact: updated.contact,
+        avatarUrl: updated.avatarUrl,
+      });
+    },
+    [],
+  );
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+    setProfile(null);
+    const { data, error: anonError } = await supabase.auth.signInAnonymously();
+    if (anonError) {
+      console.error(anonError);
+      showToast("Couldn't sign out — try again");
+      return;
+    }
+    setSession(data.session);
+  }, [showToast]);
+
+  const setSearch = useCallback(
+    (value: string) => setFilters((prev) => ({ ...prev, search: value })),
+    [],
+  );
+  const toggleCategory = useCallback(
+    (key: string) =>
+      setFilters((prev) => ({
+        ...prev,
+        categories: prev.categories.includes(key)
+          ? prev.categories.filter((k) => k !== key)
+          : [...prev.categories, key],
+      })),
+    [],
+  );
+  const setFreeOnly = useCallback(
+    (value: boolean) => setFilters((prev) => ({ ...prev, freeOnly: value })),
+    [],
+  );
+  const setDateFilter = useCallback(
+    (value: DateFilter) =>
+      setFilters((prev) => ({ ...prev, dateFilter: value })),
+    [],
+  );
+  const setDateFrom = useCallback(
+    (value: string) => setFilters((prev) => ({ ...prev, dateFrom: value })),
+    [],
+  );
+  const setDateTo = useCallback(
+    (value: string) => setFilters((prev) => ({ ...prev, dateTo: value })),
+    [],
+  );
+  const setRadius = useCallback(
+    (mi: number) => setFilters((prev) => ({ ...prev, radiusMi: mi })),
+    [],
+  );
+  const clearFilters = useCallback(
+    () =>
+      setFilters((prev) => ({
+        ...prev,
+        categories: [],
+        freeOnly: false,
+        dateFilter: "any",
+      })),
+    [],
+  );
+
+  const auth: AuthState = useMemo(() => {
+    const signedIn = Boolean(userId) && !isAnonymous;
+    if (!signedIn) return SIGNED_OUT_AUTH;
+    return {
+      signedIn: true,
+      name: profile?.name ?? "Member",
+      contact: profile?.contact ?? null,
+      avatarUrl: profile?.avatarUrl ?? null,
+    };
+  }, [userId, isAnonymous, profile]);
+
+  const value = useMemo<SessionContextValue>(
+    () => ({
+      events,
+      rsvp,
+      itinerary,
+      filters,
+      personalImpact,
+      loggedFor,
+      orgImpact,
+      auth,
+      eventReminders,
+      newEventsNearby,
+      loading,
+      loadError,
+      retryLoad,
+      userId,
+      addEvent,
+      setRsvp,
+      addToItinerary,
+      removeFromItinerary,
+      toggleItinerary,
+      logImpact,
+      requestOtp,
+      verifyOtp,
+      linkOAuth,
+      updateProfile,
+      signOut,
+      setEventReminders,
+      setNewEventsNearby,
+      setSearch,
+      toggleCategory,
+      setFreeOnly,
+      setDateFilter,
+      setDateFrom,
+      setDateTo,
+      setRadius,
+      clearFilters,
+    }),
+    [
+      events,
+      rsvp,
+      itinerary,
+      filters,
+      personalImpact,
+      loggedFor,
+      orgImpact,
+      auth,
+      eventReminders,
+      newEventsNearby,
+      loading,
+      loadError,
+      retryLoad,
+      userId,
+      addEvent,
+      setRsvp,
+      addToItinerary,
+      removeFromItinerary,
+      toggleItinerary,
+      logImpact,
+      requestOtp,
+      verifyOtp,
+      linkOAuth,
+      updateProfile,
+      signOut,
+      setEventReminders,
+      setNewEventsNearby,
+      setSearch,
+      toggleCategory,
+      setFreeOnly,
+      setDateFilter,
+      setDateFrom,
+      setDateTo,
+      setRadius,
+      clearFilters,
+    ],
+  );
+
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
+}
+
+export function useSession(): SessionContextValue {
+  const ctx = useContext(SessionContext);
+  if (!ctx) throw new Error("useSession must be used within a SessionProvider");
+  return ctx;
+}
