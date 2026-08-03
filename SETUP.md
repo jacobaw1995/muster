@@ -328,6 +328,22 @@ there except the Auth URL configuration in step 5 below.
    code-entry screen has nothing to display — confirmed still pending as of
    Phase 4's verification pass.
 
+7. **(Phase 8) Open Graph function env vars.** The `api/event-og.js`
+   serverless function needs Supabase creds at **runtime** (separate from
+   the client's build-time `VITE_` vars, which the function can't read).
+   Vercel → Settings → Environment Variables, add for **both Production and
+   Preview**:
+
+   | Key | Value |
+   |---|---|
+   | `SUPABASE_URL` | same value as `VITE_SUPABASE_URL` above |
+   | `SUPABASE_ANON_KEY` | same value as `VITE_SUPABASE_ANON_KEY` above — anon/public key only, never the `service_role` key |
+
+   Redeploy after adding these (functions pick up env vars on deploy, not
+   automatically). Without them the function still works — it just always
+   serves the default OG card instead of per-event ones (see
+   `event-og.js`'s own fallback logging).
+
 ### Email sending — Resend SMTP (already configured)
 
 Supabase's built-in email sender is rate-limited (a handful of sends/hour)
@@ -371,7 +387,10 @@ Phases 2–4. What's actually still open, as of Phase 5:
 - **Settings avatar for anonymous→permanent upgrades via `updateUser`
   outside the app's own OTP flow** — edge case only; the normal in-app path
   (Sign Up/Sign In → OtpStep → verify) upserts the profile correctly.
+- **OG/social share previews** — done in Phase 8 (`api/event-og.js` +
+  `vercel.json` rewrite). Needs the director step above (env vars) to serve
+  per-event cards instead of the default.
 - **Deferred to a later, post-deployment phase on purpose** (per the Phase 4
-  brief, not an oversight): OG/social share previews, push notifications,
-  and anti-spam hardening (rate limits, moderation, captcha, and moving
-  RSVP-at-capacity enforcement server-side via a DB check/trigger).
+  brief, not an oversight): push notifications, and anti-spam hardening
+  (rate limits, moderation, captcha, and moving RSVP-at-capacity enforcement
+  server-side via a DB check/trigger).

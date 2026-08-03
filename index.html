@@ -16,6 +16,27 @@
       content="black-translucent"
     />
     <title>Muster — Operator Standard Events</title>
+    <!--
+      Default Open Graph / Twitter Card meta (Phase 8). The api/event-og.js
+      serverless function replaces this whole OG:START/OG:END block with
+      per-event tags for /events/:id requests (see vercel.json's rewrite) —
+      the markers give it a single, unambiguous block to swap out rather
+      than hunting for individual tags. Every other route serves this
+      static default as-is.
+    -->
+    <meta name="description" content="Discover, create, and RSVP to local rucks, cleanups, training & more." />
+    <!-- OG:START -->
+    <meta property="og:site_name" content="Muster" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Muster — Operator Standard Events" />
+    <meta property="og:description" content="Discover, create, and RSVP to local rucks, cleanups, training & more." />
+    <meta property="og:image" content="https://www.eventmuster.com/og-default.png" />
+    <meta property="og:url" content="https://www.eventmuster.com/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Muster — Operator Standard Events" />
+    <meta name="twitter:description" content="Discover, create, and RSVP to local rucks, cleanups, training & more." />
+    <meta name="twitter:image" content="https://www.eventmuster.com/og-default.png" />
+    <!-- OG:END -->
   </head>
   <body>
     <div id="root"></div>
