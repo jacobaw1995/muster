@@ -201,6 +201,38 @@ export type Database = {
           },
         ]
       }
+      notifications_sent: {
+        Row: {
+          event_id: string
+          id: string
+          kind: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          event_id: string
+          id?: string
+          kind: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          event_id?: string
+          id?: string
+          kind?: string
+          sent_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_sent_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       org_impact_totals: {
         Row: {
           active_members: number
@@ -233,22 +265,43 @@ export type Database = {
           avatar_url: string | null
           contact: string | null
           created_at: string
+          event_reminders: boolean
+          home_city: string | null
+          home_lat: number | null
+          home_lng: number | null
+          home_state: string | null
+          home_zip: string | null
           id: string
           name: string | null
+          new_events_nearby: boolean
         }
         Insert: {
           avatar_url?: string | null
           contact?: string | null
           created_at?: string
+          event_reminders?: boolean
+          home_city?: string | null
+          home_lat?: number | null
+          home_lng?: number | null
+          home_state?: string | null
+          home_zip?: string | null
           id?: string
           name?: string | null
+          new_events_nearby?: boolean
         }
         Update: {
           avatar_url?: string | null
           contact?: string | null
           created_at?: string
+          event_reminders?: boolean
+          home_city?: string | null
+          home_lat?: number | null
+          home_lng?: number | null
+          home_state?: string | null
+          home_zip?: string | null
           id?: string
           name?: string | null
+          new_events_nearby?: boolean
         }
         Relationships: []
       }
@@ -289,7 +342,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      haversine_miles: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

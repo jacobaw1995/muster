@@ -344,6 +344,41 @@ there except the Auth URL configuration in step 5 below.
    serves the default OG card instead of per-event ones (see
    `event-og.js`'s own fallback logging).
 
+8. **(Phase 13) `RESEND_API_KEY` — Supabase Edge Function secret.** The two
+   notification functions (`send-event-reminders`, `send-nearby-events`)
+   call the Resend **HTTP API** directly to send branded emails — this is
+   separate from the Resend **SMTP** relay already configured for Auth's
+   own magic-link emails (below); they need their own credential in a
+   different place:
+   - Supabase dashboard → `muster` project → Edge Functions → Secrets →
+     add `RESEND_API_KEY`.
+   - **Use a fresh Resend API key** — if the key shared earlier in this
+     project's chat history for the SMTP setup is still active, rotate it
+     (Resend dashboard → API Keys) rather than reusing it here; a key
+     pasted into chat should be treated as burned.
+   - Confirm `eventmuster.com` is verified in Resend (it already is, per
+     the SMTP setup) so `no-reply@eventmuster.com` can send — no
+     additional DNS work needed.
+   - No redeploy needed — Edge Function secrets are read at invocation
+     time via `Deno.env.get()`, not baked in at deploy time. The very next
+     scheduled pg_cron run (or a manual invoke, see below) will pick it up.
+   - **Until this is set**, both functions still run correctly on their
+     pg_cron schedule (query, match, and de-dupe against
+     `notifications_sent` all work) — they just skip the actual send and
+     report `"RESEND_API_KEY not set"` per recipient in their JSON
+     response instead of erroring. Nothing breaks; no email goes out.
+   - To verify a real send after setting the key: manually invoke either
+     function —
+     ```bash
+     curl -X POST https://tqivrtrlnwuaxhzjklaz.supabase.co/functions/v1/send-event-reminders \
+       -H "Content-Type: application/json" \
+       -H "Authorization: Bearer <the anon key from Settings → API>" \
+       -d '{"kind":"evening"}'
+     ```
+     — against a test event/RSVP/profile (matching Mountain-time "today" or
+     "tomorrow" per the `kind`), then check the JSON response's `sent`
+     count and the Resend dashboard's delivery log.
+
 ### Email sending — Resend SMTP (already configured)
 
 Supabase's built-in email sender is rate-limited (a handful of sends/hour)
@@ -367,20 +402,47 @@ step 4 — the two setups don't overlap.
 If email deliverability ever needs debugging: check Resend's own delivery
 log first, then Supabase's Auth logs.
 
+### Event & nearby-event email notifications (Phase 13)
+
+Two Supabase Edge Functions, scheduled via `pg_cron` (migration
+`20260805100000_notifications.sql`) and sending through the Resend HTTP
+API (see Director step 8 above):
+
+- **`send-event-reminders`** — runs twice daily (~6pm and ~8am
+  `America/Denver`, fixed UTC offsets — see the migration's own comment on
+  the Daylight/Standard Time drift). Evening covers TOMORROW's yes-RSVPd
+  events, morning covers TODAY's, for every permanent user with
+  `profiles.event_reminders = true`.
+- **`send-nearby-events`** — runs hourly, digesting any newly-created,
+  geocoded events into one email per opted-in user (`new_events_nearby =
+  true`) whose `home_lat`/`home_lng` (set in Settings → Home location) is
+  within 50mi, using the same haversine formula as the map's own "near me"
+  filter.
+- **De-dupe**: both functions claim each `(user, event, kind)` triple in
+  `notifications_sent` via an upsert-with-`ignoreDuplicates` *before*
+  sending — a re-run or overlapping schedule can never double-send.
+  Verified live: invoking a function twice against the same test data
+  claims once, sends once, and reports zero new recipients on the repeat.
+- **Recipients**: sourced from `profiles.contact` (the permanent user's
+  email, set at sign-up), not the Auth Admin API — anonymous users never
+  get a `profiles` row in this app, so `contact is not null` is already a
+  sufficient "real, permanent user" filter.
+- Both functions are deployed with `verify_jwt=false` (server-to-server
+  calls from `pg_cron`, no end-user JWT involved) and read
+  `SUPABASE_SERVICE_ROLE_KEY` from their own environment (auto-injected by
+  Supabase into every Edge Function — no manual secret needed for that
+  one, only `RESEND_API_KEY`).
+
 ## Remaining open TODOs
 
 Everything in the original Phase 1 list (Supabase backend, real photo
 upload, desktop two-pane layout, event-not-found handling) shipped in
-Phases 2–4. What's actually still open, as of Phase 5:
+Phases 2–4. What's actually still open, as of Phase 13:
 
-- **Real app icons** — `public/pwa-192.png`, `public/pwa-512.png`,
-  `public/apple-touch-icon.png`, and `public/favicon.svg` are all still the
-  Phase 0 programmatically-generated placeholders. Swap for real brand
-  artwork — a design asset, not a blocker for launch.
 - **OTP email template** — the Confirm-signup / Change-email templates in
   Supabase still send a magic link, not a `{{ .Token }}` code, so the app's
   OTP code-entry screen has nothing to display yet. See **Deploying
-  MUSTER → Director steps** below.
+  MUSTER → Director steps** above.
 - **Google / Apple / phone sign-in** — code paths exist and fail gracefully
   (toast, no crash) but need real provider credentials configured in the
   Supabase dashboard before they're live.
@@ -390,7 +452,15 @@ Phases 2–4. What's actually still open, as of Phase 5:
 - **OG/social share previews** — done in Phase 8 (`api/event-og.js` +
   `vercel.json` rewrite). Needs the director step above (env vars) to serve
   per-event cards instead of the default.
-- **Deferred to a later, post-deployment phase on purpose** (per the Phase 4
-  brief, not an oversight): push notifications, and anti-spam hardening
-  (rate limits, moderation, captcha, and moving RSVP-at-capacity enforcement
-  server-side via a DB check/trigger).
+- **`RESEND_API_KEY`** — see Director step 8 above. Until it's set, the
+  Phase 13 notification functions run correctly on schedule but skip the
+  actual send.
+- **`pwa-512.png`'s maskable safe-area** — the Phase 12 brand kit's artwork
+  has very little padding around the mark, so the OS's circular/rounded
+  mask (Android install icon) may clip it. Cosmetic, not a blocker.
+- **Deferred to a later, post-deployment phase on purpose** (per the
+  Phase 4 brief, not an oversight): push notifications (email-only as of
+  Phase 13) and anti-spam hardening (rate limits, moderation, captcha, and
+  moving RSVP-at-capacity enforcement server-side via a DB check/trigger —
+  recommended before wide promotion, especially now that Phase 13 can send
+  real email at scale).

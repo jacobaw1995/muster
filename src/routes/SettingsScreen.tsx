@@ -31,6 +31,10 @@ export default function SettingsScreen() {
     newEventsNearby,
     setEventReminders,
     setNewEventsNearby,
+    homeCity,
+    homeState,
+    homeZip,
+    setHomeLocation,
     updateProfile,
     deleteEvent,
     signOut,
@@ -41,6 +45,10 @@ export default function SettingsScreen() {
   const [savingName, setSavingName] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  const [homeCityDraft, setHomeCityDraft] = useState(homeCity ?? "");
+  const [homeStateDraft, setHomeStateDraft] = useState(homeState ?? "");
+  const [homeZipDraft, setHomeZipDraft] = useState(homeZip ?? "");
+  const [savingHome, setSavingHome] = useState(false);
 
   // Keeps the draft in sync if the real name changes from elsewhere (e.g.
   // Sign Up's stashed name landing right after this mounts), unless the
@@ -50,6 +58,21 @@ export default function SettingsScreen() {
   if ((auth.name ?? "") !== lastSyncedName && !savingName) {
     setLastSyncedName(auth.name ?? "");
     setNameDraft(auth.name ?? "");
+  }
+
+  // Same pattern as the name draft above — home location loads async
+  // (it's on the profile, not `auth`), so sync the drafts once it arrives.
+  // `homeCity` is the sentinel for "did the profile finish loading"; all
+  // three fields land together from the same fetch, so syncing them
+  // together off one changed field is safe.
+  const [lastSyncedHomeCity, setLastSyncedHomeCity] = useState(
+    homeCity ?? "",
+  );
+  if ((homeCity ?? "") !== lastSyncedHomeCity && !savingHome) {
+    setLastSyncedHomeCity(homeCity ?? "");
+    setHomeCityDraft(homeCity ?? "");
+    setHomeStateDraft(homeState ?? "");
+    setHomeZipDraft(homeZip ?? "");
   }
 
   // Tracks whether this mount ever saw a signed-in user, so a LOG OUT click
@@ -136,6 +159,28 @@ export default function SettingsScreen() {
       showToast("Couldn't update your name — try again");
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const handleSaveHome = async () => {
+    if (!homeCityDraft.trim() || !homeStateDraft.trim() || savingHome) return;
+    setSavingHome(true);
+    try {
+      const { geocoded } = await setHomeLocation({
+        city: homeCityDraft,
+        state: homeStateDraft,
+        zip: homeZipDraft,
+      });
+      showToast(
+        geocoded
+          ? "Home location saved"
+          : "Saved — couldn't pin it on the map yet",
+      );
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't save your home location — try again");
+    } finally {
+      setSavingHome(false);
     }
   };
 
@@ -256,6 +301,44 @@ export default function SettingsScreen() {
             ariaLabel="New events near me"
           />
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className={sectionLabelClass}>HOME LOCATION</div>
+        <div className="font-sans text-[11px] font-medium text-ink-dim">
+          Used to match "New events near me" emails — not shown to anyone
+          else.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={homeCityDraft}
+            onChange={(e) => setHomeCityDraft(e.target.value)}
+            placeholder="City"
+            className="box-border min-w-0 flex-1 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
+          />
+          <input
+            value={homeStateDraft}
+            onChange={(e) => setHomeStateDraft(e.target.value)}
+            placeholder="State"
+            className="box-border min-w-0 flex-1 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
+          />
+          <input
+            value={homeZipDraft}
+            onChange={(e) => setHomeZipDraft(e.target.value)}
+            placeholder="ZIP (optional)"
+            className="box-border min-w-0 flex-1 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleSaveHome}
+          disabled={
+            !homeCityDraft.trim() || !homeStateDraft.trim() || savingHome
+          }
+          className="self-start rounded-input border-none bg-accent px-4 py-2.5 font-sans text-[12.5px] font-bold text-accent-on disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {savingHome ? "SAVING…" : "SAVE"}
+        </button>
       </div>
 
       <div className="flex flex-col gap-2">

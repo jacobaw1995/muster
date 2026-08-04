@@ -48,6 +48,7 @@ import {
   removeItinerary as apiRemoveItinerary,
 } from "../lib/api/itinerary";
 import { getProfile, upsertProfile } from "../lib/api/profiles";
+import { geocodeAddress } from "../lib/api/geocode";
 import {
   clearRsvp,
   listRsvpsForUser,
@@ -132,6 +133,33 @@ interface ProfileState {
   name: string | null;
   contact: string | null;
   avatarUrl: string | null;
+  eventReminders: boolean;
+  newEventsNearby: boolean;
+  homeCity: string | null;
+  homeState: string | null;
+  homeZip: string | null;
+}
+
+function toProfileState(p: {
+  name: string | null;
+  contact: string | null;
+  avatarUrl: string | null;
+  eventReminders: boolean;
+  newEventsNearby: boolean;
+  homeCity: string | null;
+  homeState: string | null;
+  homeZip: string | null;
+}): ProfileState {
+  return {
+    name: p.name,
+    contact: p.contact,
+    avatarUrl: p.avatarUrl,
+    eventReminders: p.eventReminders,
+    newEventsNearby: p.newEventsNearby,
+    homeCity: p.homeCity,
+    homeState: p.homeState,
+    homeZip: p.homeZip,
+  };
 }
 
 /**
@@ -212,8 +240,20 @@ interface SessionContextValue {
   }) => Promise<void>;
   /** Signs out, then immediately re-establishes a fresh anonymous session so browsing keeps working signed-out. */
   signOut: () => Promise<void>;
+  /** Persisted to profiles.event_reminders — read by the send-event-reminders Edge Function. Optimistic update with rollback + toast on failure. */
   setEventReminders: (value: boolean) => void;
+  /** Persisted to profiles.new_events_nearby — read by the send-nearby-events Edge Function. Optimistic update with rollback + toast on failure. */
   setNewEventsNearby: (value: boolean) => void;
+  /** Null until the user sets a home location in Settings — the display fields (not the geocoded lat/lng, which are server-side only). */
+  homeCity: string | null;
+  homeState: string | null;
+  homeZip: string | null;
+  /** Geocodes (best-effort) and persists the home location used for "new events nearby" matching. Returns { geocoded: false } if the geocode failed — the display fields still save either way, same "never blocks" precedent as event creation. */
+  setHomeLocation: (input: {
+    city: string;
+    state: string;
+    zip: string;
+  }) => Promise<{ geocoded: boolean }>;
 
   setSearch: (value: string) => void;
   toggleCategory: (key: string) => void;
@@ -243,8 +283,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     year: null,
     allTime: null,
   });
-  const [eventReminders, setEventReminders] = useState(true);
-  const [newEventsNearby, setNewEventsNearby] = useState(true);
   const [userLocation, setUserLocation] = useState<Coords | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [loading, setLoading] = useState(true);
@@ -373,11 +411,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setOrgImpact({ year: orgYear, allTime: orgAllTime });
 
         if (loadedProfile) {
-          setProfile({
-            name: loadedProfile.name,
-            contact: loadedProfile.contact,
-            avatarUrl: loadedProfile.avatarUrl,
-          });
+          setProfile(toProfileState(loadedProfile));
         } else if (!isAnonymous) {
           // Permanent user with no profile row yet — e.g. just linked
           // Google/Apple, which doesn't go through our upsertProfile call
@@ -391,11 +425,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             contact: userRes.user?.email ?? userRes.user?.phone ?? undefined,
           });
           if (!cancelled) {
-            setProfile({
-              name: created.name,
-              contact: created.contact,
-              avatarUrl: created.avatarUrl,
-            });
+            setProfile(toProfileState(created));
           }
         } else {
           setProfile(null);
@@ -428,11 +458,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!pendingName) return;
     upsertProfile({ name: pendingName })
       .then((updated) => {
-        setProfile({
-          name: updated.name,
-          contact: updated.contact,
-          avatarUrl: updated.avatarUrl,
-        });
+        setProfile(toProfileState(updated));
         showToast("Account created");
       })
       .catch((err) => {
@@ -592,11 +618,75 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const updateProfile = useCallback(
     async (patch: { name?: string; contact?: string; avatarUrl?: string }) => {
       const updated = await upsertProfile(patch);
-      setProfile({
-        name: updated.name,
-        contact: updated.contact,
-        avatarUrl: updated.avatarUrl,
+      setProfile(toProfileState(updated));
+    },
+    [],
+  );
+
+  // event_reminders/new_events_nearby are derived from `profile`, not their
+  // own state — one source of truth instead of two copies that could drift.
+  // Default true (matching the DB column default) for the brief window
+  // before the profile loads, or for a signed-in-but-no-profile-row-yet
+  // edge case.
+  const eventReminders = profile?.eventReminders ?? true;
+  const newEventsNearby = profile?.newEventsNearby ?? true;
+  const homeCity = profile?.homeCity ?? null;
+  const homeState = profile?.homeState ?? null;
+  const homeZip = profile?.homeZip ?? null;
+
+  const setEventReminders = useCallback(
+    (value: boolean) => {
+      setProfile((prev) => (prev ? { ...prev, eventReminders: value } : prev));
+      upsertProfile({ eventReminders: value }).catch((err) => {
+        console.error(err);
+        setProfile((prev) =>
+          prev ? { ...prev, eventReminders: !value } : prev,
+        );
+        showToast("Couldn't save — try again");
       });
+    },
+    [showToast],
+  );
+
+  const setNewEventsNearby = useCallback(
+    (value: boolean) => {
+      setProfile((prev) =>
+        prev ? { ...prev, newEventsNearby: value } : prev,
+      );
+      upsertProfile({ newEventsNearby: value }).catch((err) => {
+        console.error(err);
+        setProfile((prev) =>
+          prev ? { ...prev, newEventsNearby: !value } : prev,
+        );
+        showToast("Couldn't save — try again");
+      });
+    },
+    [showToast],
+  );
+
+  // Geocodes city/state/zip (best-effort — same "never blocks on a failed
+  // geocode" precedent as event creation, see CreateScreen) and persists
+  // both the display fields and the resulting lat/lng, which is what
+  // send-nearby-events actually matches against. Returns whether the
+  // geocode succeeded so the caller (SettingsScreen) can toast accordingly.
+  const setHomeLocation = useCallback(
+    async (input: { city: string; state: string; zip: string }) => {
+      const city = input.city.trim();
+      const state = input.state.trim();
+      const zip = input.zip.trim();
+      const geo =
+        city && state
+          ? await geocodeAddress({ city, state, zip: zip || undefined })
+          : null;
+      const updated = await upsertProfile({
+        homeCity: city || null,
+        homeState: state || null,
+        homeZip: zip || null,
+        homeLat: geo?.lat ?? null,
+        homeLng: geo?.lng ?? null,
+      });
+      setProfile(toProfileState(updated));
+      return { geocoded: geo != null };
     },
     [],
   );
@@ -712,6 +802,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       setEventReminders,
       setNewEventsNearby,
+      homeCity,
+      homeState,
+      homeZip,
+      setHomeLocation,
       setSearch,
       toggleCategory,
       setFreeOnly,
@@ -753,6 +847,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       setEventReminders,
       setNewEventsNearby,
+      homeCity,
+      homeState,
+      homeZip,
+      setHomeLocation,
       setSearch,
       toggleCategory,
       setFreeOnly,
