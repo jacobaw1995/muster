@@ -4,13 +4,9 @@ import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
 import { Wordmark } from "../components/Wordmark";
 import { AppleIcon, GoogleIcon } from "../components/icons";
+import { APPLE_SIGNIN_ENABLED } from "../lib/featureFlags";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
-
-// TODO(Apple): flip once an Apple Developer account is set up and Sign in
-// with Apple is configured in the Supabase dashboard — the button below is
-// hidden, not removed, so re-enabling is a one-line change.
-const APPLE_SIGNIN_ENABLED = false;
 
 const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";

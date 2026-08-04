@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
 import { Wordmark } from "../components/Wordmark";
+import { AppleIcon, GoogleIcon } from "../components/icons";
+import { APPLE_SIGNIN_ENABLED } from "../lib/featureFlags";
 import {
   clearPendingProfileName,
   stashPendingProfileName,
@@ -10,15 +12,36 @@ import {
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
 
+const oauthButtonClass =
+  "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
+
 export default function SignUpScreen() {
-  const { requestMagicLink } = useSession();
+  const { requestMagicLink, linkOAuth } = useSession();
   const { showToast } = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<"details" | "sent">("details");
   const [requesting, setRequesting] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(
+    null,
+  );
 
   const disabled = !name.trim() || !email.trim();
+
+  const handleOAuth = async (provider: "google" | "apple") => {
+    setOauthLoading(provider);
+    try {
+      await linkOAuth(provider);
+      // Success redirects the browser away — nothing else runs here.
+    } catch (err) {
+      console.error(err);
+      showToast(
+        `${provider === "google" ? "Google" : "Apple"} sign-in isn't set up yet — try email.`,
+      );
+    } finally {
+      setOauthLoading(null);
+    }
+  };
 
   const handleSubmit = async () => {
     if (disabled || requesting) return;
@@ -66,6 +89,37 @@ export default function SignUpScreen() {
           Guest browsing already works — create an account when you want
           calendar sync and saved RSVPs.
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <button
+          type="button"
+          onClick={() => handleOAuth("google")}
+          disabled={oauthLoading !== null}
+          className={oauthButtonClass}
+        >
+          <GoogleIcon />
+          {oauthLoading === "google" ? "Connecting…" : "Continue with Google"}
+        </button>
+        {APPLE_SIGNIN_ENABLED && (
+          <button
+            type="button"
+            onClick={() => handleOAuth("apple")}
+            disabled={oauthLoading !== null}
+            className={oauthButtonClass}
+          >
+            <AppleIcon />
+            {oauthLoading === "apple" ? "Connecting…" : "Continue with Apple"}
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2.5">
+        <div className="h-px flex-1 bg-line" />
+        <span className="font-mono text-[10px] font-semibold text-ink-dim">
+          OR
+        </span>
+        <div className="h-px flex-1 bg-line" />
       </div>
 
       <label className="flex flex-col gap-1.5">
