@@ -7,6 +7,11 @@ import { AppleIcon, GoogleIcon } from "../components/icons";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
 
+// TODO(Apple): flip once an Apple Developer account is set up and Sign in
+// with Apple is configured in the Supabase dashboard — the button below is
+// hidden, not removed, so re-enabling is a one-line change.
+const APPLE_SIGNIN_ENABLED = false;
+
 const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -88,15 +93,17 @@ export default function SignInScreen() {
           <GoogleIcon />
           {oauthLoading === "google" ? "Connecting…" : "Continue with Google"}
         </button>
-        <button
-          type="button"
-          onClick={() => handleOAuth("apple")}
-          disabled={oauthLoading !== null}
-          className={oauthButtonClass}
-        >
-          <AppleIcon />
-          {oauthLoading === "apple" ? "Connecting…" : "Continue with Apple"}
-        </button>
+        {APPLE_SIGNIN_ENABLED && (
+          <button
+            type="button"
+            onClick={() => handleOAuth("apple")}
+            disabled={oauthLoading !== null}
+            className={oauthButtonClass}
+          >
+            <AppleIcon />
+            {oauthLoading === "apple" ? "Connecting…" : "Continue with Apple"}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-2.5">
