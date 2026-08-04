@@ -410,6 +410,29 @@ there except the Auth URL configuration in step 5 below.
      intentional so local dev is never blocked, but it means creation is
      **unprotected** in production until you complete this step.
 
+10. **(Phase 15) Deploy the `scrape-event` Edge Function — "paste a link"
+    autofill on Create.** The function's code is committed at
+    `supabase/functions/scrape-event/` but could **not** be deployed from
+    this build session: the Supabase MCP connection used for every prior
+    deploy in this project was down, and the local Supabase CLI is
+    authenticated to a different Supabase account with no access to the
+    `muster` project (`supabase projects list` shows unrelated projects;
+    `supabase functions list --project-ref tqivrtrlnwuaxhzjklaz` returns a
+    403). Until this is deployed, the "Paste event link" panel on Create
+    step 1 always reports "couldn't read that link" (the client-side
+    wrapper never throws — see `src/lib/api/scrapeEvent.ts` — so this fails
+    gracefully; it just does nothing useful yet). To deploy:
+    - From a machine/session with real CLI access to the `muster` project:
+      `supabase functions deploy scrape-event --project-ref tqivrtrlnwuaxhzjklaz`
+    - No new secrets or env vars are required — the function does no DB
+      access and needs no service-role key; it only fetches the pasted URL
+      server-side. It's deployed with `verify_jwt=true` (default) purely so
+      only signed-in-or-anon Supabase clients can call it, matching
+      `geocode`/`create-event`.
+    - After deploying, sanity-check with a real Event-schema page (e.g. a
+      Luma or Eventbrite event URL) and confirm the panel pre-fills
+      title/date/time/location.
+
 ### Email sending — Resend SMTP (already configured)
 
 Supabase's built-in email sender is rate-limited (a handful of sends/hour)
@@ -566,3 +589,12 @@ Phases 2–4. What's actually still open, as of Phase 14:
   Phase 14 brief, not an oversight.
 - **Deferred to a later, post-deployment phase on purpose**: push
   notifications (email-only as of Phase 13).
+- **`scrape-event` Edge Function not yet deployed** — see Director step 10
+  above. The "paste event link" autofill panel on Create is fully wired
+  client-side but has nothing to call until this is deployed.
+- **Scraped photo (`imageUrl`) is stored as a direct remote URL, not
+  re-hosted** — Phase 15's autofill sets `photo_url` straight to whatever
+  image URL the source page exposed (its own CDN/hotlink), matching the
+  spec's "v1" instruction. A future phase could fetch and re-upload it to
+  Supabase Storage instead, so event photos don't depend on a third-party
+  host staying up.

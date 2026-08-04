@@ -3,13 +3,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import { BasicsStep } from "../components/create/BasicsStep";
 import { CategoryStep } from "../components/create/CategoryStep";
 import { DetailsStep } from "../components/create/DetailsStep";
+import { PasteLinkPanel } from "../components/create/PasteLinkPanel";
 import { ReviewStep } from "../components/create/ReviewStep";
-import { ChevronLeftIcon, XIcon } from "../components/icons";
+import { AlertIcon, ChevronLeftIcon, XIcon } from "../components/icons";
 import { TURNSTILE_CONFIGURED, Turnstile } from "../components/Turnstile";
 import { geocodeAddress } from "../lib/api/geocode";
+import type { ScrapeEventResult } from "../lib/api/scrapeEvent";
 import {
   deriveDurationSelection,
   resolveDuration,
+  snapDurationToNearestPreset,
 } from "../lib/duration";
 import {
   formatTimeOfDay,
@@ -113,6 +116,12 @@ export default function CreateScreen() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM);
   const [posting, setPosting] = useState(false);
+  // Fields a "paste link" autofill (Phase 15) couldn't find — "date" and/or
+  // "location" only. Drives the notice banner + BasicsStep border highlight;
+  // cleared whenever a fresh autofill runs.
+  const [autofillMissing, setAutofillMissing] = useState<Set<string>>(
+    new Set(),
+  );
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   // Bumped after a failed submit to force the Turnstile widget to fully
   // remount — tokens are single-use, so a retry needs a fresh widget
@@ -309,6 +318,47 @@ export default function CreateScreen() {
     }
   };
 
+  // Pre-fills whatever the scrape found and always drops the user into the
+  // normal reviewable wizard — never auto-submits, never touches category.
+  const handleAutofillResult = (result: ScrapeEventResult) => {
+    const { fields, missing, found } = result;
+
+    if (!found) {
+      showToast("Couldn't read that link — go ahead and fill it in manually");
+      setAutofillMissing(new Set());
+      return;
+    }
+
+    const patch: Partial<CreateFormState> = {};
+    if (fields.title) patch.title = fields.title;
+    if (fields.notes) patch.notes = fields.notes;
+    if (fields.date) patch.date = fields.date;
+    if (fields.time) patch.time = parseTimeOfDayTo24h(fields.time);
+    if (fields.durationHours != null) {
+      const duration = snapDurationToNearestPreset(fields.durationHours);
+      patch.durationChoice = duration.durationChoice;
+      patch.durationCustomHours = duration.durationCustomHours;
+    }
+    if (fields.location) patch.venueName = fields.location;
+    if (fields.city) patch.city = fields.city;
+    if (fields.state) patch.state = fields.state;
+    if (fields.zip) patch.zip = fields.zip;
+    if (fields.cost) patch.cost = fields.cost;
+    if (fields.imageUrl) patch.photoUrl = fields.imageUrl;
+    if (fields.website) patch.website = fields.website;
+    update(patch);
+
+    const missingSet = new Set(
+      missing.filter((field) => field === "date" || field === "location"),
+    );
+    setAutofillMissing(missingSet);
+    showToast(
+      missingSet.size > 0
+        ? "Filled what we could — please add the rest"
+        : "Filled in from that link — review before posting",
+    );
+  };
+
   const handleNext = () => {
     if (step < TOTAL_STEPS - 1) {
       setStep((s) => s + 1);
@@ -349,8 +399,36 @@ export default function CreateScreen() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5 pt-1">
-        {step === 0 && <CategoryStep form={form} onChange={update} />}
-        {step === 1 && <BasicsStep form={form} onChange={update} />}
+        {step === 0 && (
+          <>
+            {!isEditMode && <PasteLinkPanel onResult={handleAutofillResult} />}
+            <CategoryStep form={form} onChange={update} />
+          </>
+        )}
+        {step === 1 && (
+          <>
+            {autofillMissing.size > 0 && (
+              <div className="flex items-start gap-2.5 rounded-card border border-warn/40 bg-warn/15 p-3 text-warn">
+                <AlertIcon size={17} className="mt-0.5 flex-none" />
+                <span className="font-sans text-[12px] font-semibold leading-snug">
+                  We couldn't find the{" "}
+                  {autofillMissing.has("date") && autofillMissing.has("location")
+                    ? "date or location"
+                    : autofillMissing.has("date")
+                      ? "date"
+                      : "location"}{" "}
+                  on that page — please add{" "}
+                  {autofillMissing.size > 1 ? "them" : "it"} below.
+                </span>
+              </div>
+            )}
+            <BasicsStep
+              form={form}
+              onChange={update}
+              highlightFields={autofillMissing}
+            />
+          </>
+        )}
         {step === 2 && <DetailsStep form={form} onChange={update} />}
         {step === 3 && (
           <>

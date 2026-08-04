@@ -29,3 +29,7 @@ dev-dist
 # Claude Code local-only settings (machine/session-specific permissions —
 # .claude/launch.json IS committed, it's the shared dev-server config)
 .claude/settings.local.json
+
+# Supabase CLI local cache (machine-specific, e.g. version-check state) —
+# not project content, never has secrets, but shouldn't be committed
+supabase/.temp/

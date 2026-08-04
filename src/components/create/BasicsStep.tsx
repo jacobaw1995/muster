@@ -5,14 +5,19 @@ const fieldLabelClass =
   "font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim";
 const inputClass =
   "box-border w-full rounded-input border border-line bg-card p-[13px] font-sans text-sm font-semibold text-ink outline-none";
+const inputHighlightClass = "border-[1.5px] border-warn";
 
 interface BasicsStepProps {
   form: CreateFormState;
   onChange: (patch: Partial<CreateFormState>) => void;
+  /** Fields a link-paste autofill (Phase 15) couldn't find — currently only "date"/"city"/"state" are ever flagged. Draws attention to what still needs manual entry without blocking the flow. */
+  highlightFields?: Set<string>;
 }
 
-export function BasicsStep({ form, onChange }: BasicsStepProps) {
+export function BasicsStep({ form, onChange, highlightFields }: BasicsStepProps) {
   const isCustomDuration = form.durationChoice === CUSTOM_DURATION_KEY;
+  const highlighted = (field: string) =>
+    highlightFields?.has(field) ? inputHighlightClass : "";
 
   return (
     <div className="flex flex-col gap-3">
@@ -54,7 +59,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             onChange={(e) => onChange({ city: e.target.value })}
             placeholder="Golden"
             maxLength={100}
-            className={inputClass}
+            className={`${inputClass} ${highlighted("location")}`}
           />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -64,7 +69,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             onChange={(e) => onChange({ state: e.target.value })}
             placeholder="CO"
             maxLength={50}
-            className={inputClass}
+            className={`${inputClass} ${highlighted("location")}`}
           />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -85,7 +90,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             type="date"
             value={form.date}
             onChange={(e) => onChange({ date: e.target.value })}
-            className={`${inputClass} text-[13px]`}
+            className={`${inputClass} text-[13px] ${highlighted("date")}`}
           />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1.5">

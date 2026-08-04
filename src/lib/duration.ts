@@ -77,3 +77,31 @@ export function deriveDurationSelection(
   // — the TBD preset is the closest honest fallback.
   return { durationChoice: "tbd", durationCustomHours: "" };
 }
+
+/**
+ * Used by the "paste a link" autofill (Phase 15): a scraped page's
+ * endDate-minus-startDate rarely lands exactly on one of the fixed
+ * presets, so this snaps to whichever preset is numerically CLOSEST
+ * rather than falling through to "Custom…" — a scraped "2h 10m" event
+ * should land on the 2-hour chip, not force the user into a custom-hours
+ * field for a difference that small.
+ */
+export function snapDurationToNearestPreset(hours: number): DurationSelection {
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return { durationChoice: "tbd", durationCustomHours: "" };
+  }
+  const timedPresets = DURATION_PRESETS.filter(
+    (p): p is DurationPreset & { minutes: number } => p.minutes != null,
+  );
+  const targetMinutes = hours * 60;
+  let closest = timedPresets[0];
+  let closestDiff = Math.abs(closest.minutes - targetMinutes);
+  for (const preset of timedPresets.slice(1)) {
+    const diff = Math.abs(preset.minutes - targetMinutes);
+    if (diff < closestDiff) {
+      closest = preset;
+      closestDiff = diff;
+    }
+  }
+  return { durationChoice: closest.key, durationCustomHours: "" };
+}
