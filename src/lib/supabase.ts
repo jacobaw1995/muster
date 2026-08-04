@@ -38,21 +38,29 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
 function readAuthRedirectSignal(): {
   pending: boolean;
   error: string | null;
+  errorCode: string | null;
 } {
-  if (typeof window === "undefined") return { pending: false, error: null };
+  if (typeof window === "undefined")
+    return { pending: false, error: null, errorCode: null };
 
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const search = new URLSearchParams(window.location.search);
 
   const errorDescription =
     hash.get("error_description") ?? search.get("error_description");
-  const errorCode = hash.get("error") ?? search.get("error");
-  if (errorCode) {
-    return { pending: true, error: errorDescription ?? errorCode };
+  const errorParam = hash.get("error") ?? search.get("error");
+  // GoTrue's machine-readable code (e.g. "identity_already_exists") — a
+  // separate param from the generic `error`/`error_description` pair, and
+  // the one worth matching on for anything that needs to branch on the
+  // SPECIFIC failure rather than just display it (see isIdentityCollisionError
+  // in lib/api/auth.ts).
+  const errorCode = hash.get("error_code") ?? search.get("error_code");
+  if (errorParam) {
+    return { pending: true, error: errorDescription ?? errorParam, errorCode };
   }
 
   const pending = hash.has("access_token") || search.has("code");
-  return { pending, error: null };
+  return { pending, error: null, errorCode: null };
 }
 
 const authRedirectSignal = readAuthRedirectSignal();
@@ -61,6 +69,8 @@ const authRedirectSignal = readAuthRedirectSignal();
 export const hadAuthRedirect = authRedirectSignal.pending;
 /** The `error`/`error_description` from a failed OAuth or magic-link redirect, if any — null on a normal load or a successful one. */
 export const authRedirectError = authRedirectSignal.error;
+/** GoTrue's machine-readable `error_code` from a failed auth redirect (e.g. "identity_already_exists"), if any — null on a normal load, a success, or when GoTrue didn't supply one. */
+export const authRedirectErrorCode = authRedirectSignal.errorCode;
 
 // The SDK's own detectSessionInUrl strips a SUCCESSFUL hash/`?code=` return
 // from the URL once it's done exchanging it, but it never touches the URL

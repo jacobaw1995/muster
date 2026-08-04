@@ -14,7 +14,12 @@ import {
   type DateFilter,
   type EventFilters,
 } from "../lib/filterEvents";
-import { authRedirectError, hadAuthRedirect, supabase } from "../lib/supabase";
+import {
+  authRedirectError,
+  authRedirectErrorCode,
+  hadAuthRedirect,
+  supabase,
+} from "../lib/supabase";
 import type { MusterEvent, RsvpStatus } from "../lib/mockEvents";
 import {
   createEvent as apiCreateEvent,
@@ -26,8 +31,14 @@ import {
   type UpdateEventInput,
 } from "../lib/api/events";
 import {
+  clearCollisionFallbackAttempted,
+  hasAttemptedCollisionFallback,
+  isIdentityCollisionError,
   linkOrSignInWithOAuth,
+  markCollisionFallbackAttempted,
   requestMagicLink as apiRequestMagicLink,
+  signInWithOAuthAfterCollision,
+  takeStashedOAuthProvider,
   type OAuthProvider,
 } from "../lib/api/auth";
 import {
@@ -329,12 +340,73 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // "Continue with Google" with an email that's already a DIFFERENT
+    // existing account can't linkIdentity() onto the current anonymous
+    // session — Supabase reports that collision back on the OAuth RETURN
+    // leg (a URL error, not a synchronous throw at click time), which is
+    // why it's handled here in bootstrap rather than in the click handler.
+    const isCollision = isIdentityCollisionError(
+      authRedirectErrorCode,
+      authRedirectError,
+    );
+    // Only the FIRST collision return gets auto-retried (see
+    // hasAttemptedCollisionFallback below) — a repeat needs its own
+    // terminal toast rather than the generic one below, and rather than
+    // silently falling through with no explanation at all.
+    const willAutoRetryCollision = isCollision && !hasAttemptedCollisionFallback();
+
     if (authRedirectError && !authErrorShown.current) {
       authErrorShown.current = true;
-      showToast(`Sign-in failed: ${authRedirectError}`);
+      if (willAutoRetryCollision) {
+        // The collision case gets its own "signing you in…" toast + redirect
+        // below instead of this generic one — showing both would be
+        // confusing mid-redirect.
+      } else if (isCollision) {
+        showToast("Couldn't sign in with Google — try email instead.");
+      } else {
+        showToast(`Sign-in failed: ${authRedirectError}`);
+      }
+    }
+
+    async function establishAnonymousSession() {
+      const { data: anon, error: anonError } =
+        await supabase.auth.signInAnonymously();
+      if (cancelled) return;
+      if (anonError) {
+        console.error(anonError);
+        setLoadError("Couldn't start a session. Check your connection.");
+        return;
+      }
+      setSession(anon.session);
     }
 
     async function bootstrap() {
+      if (willAutoRetryCollision) {
+        // Fall back to a plain sign-in for the same provider: Supabase
+        // treats the verified email as belonging to the account it's
+        // already linked to, so this signs the user straight into their
+        // EXISTING account instead of failing outright. Marked BEFORE the
+        // redirect attempt (not after) so a repeat failure — including one
+        // from a manual retryLoad() re-running this same effect within the
+        // same page load — shows a terminal error instead of retrying
+        // forever; only cleared on genuine sign-in success, below. Checked
+        // first, before ever touching getSession()/signInAnonymously(), so
+        // a fresh anonymous session can't get created and clobber this
+        // redirect mid-flight — the exact bug the hadAuthRedirect branch
+        // further down already exists to prevent for the non-collision case.
+        markCollisionFallbackAttempted();
+        showToast("Signing you into your existing account…");
+        try {
+          await signInWithOAuthAfterCollision(takeStashedOAuthProvider());
+          // Success redirects the browser away — nothing else runs here.
+        } catch (err) {
+          console.error("Collision fallback sign-in failed:", err);
+          showToast("Couldn't sign in — try email instead.");
+          await establishAnonymousSession();
+        }
+        return;
+      }
+
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
       if (data.session) {
@@ -357,27 +429,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           console.error(
             "Auth redirect exchange never completed — falling back to an anonymous session.",
           );
-          const { data: anon, error: anonError } =
-            await supabase.auth.signInAnonymously();
-          if (cancelled) return;
-          if (anonError) {
-            console.error(anonError);
-            setLoadError("Couldn't start a session. Check your connection.");
-            return;
-          }
-          setSession(anon.session);
+          await establishAnonymousSession();
         }, 8000);
         return;
       }
-      const { data: anon, error: anonError } =
-        await supabase.auth.signInAnonymously();
-      if (cancelled) return;
-      if (anonError) {
-        console.error(anonError);
-        setLoadError("Couldn't start a session. Check your connection.");
-        return;
-      }
-      setSession(anon.session);
+      await establishAnonymousSession();
     }
 
     bootstrap();
@@ -392,6 +448,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       if (!newSession.user.is_anonymous) {
         awaitingRedirectReturn.current = false;
+        // A genuine sign-in landed — clear the collision-fallback loop
+        // guard so it doesn't block some unrelated future OAuth attempt
+        // later in this same tab. Harmless no-op when it was never set.
+        clearCollisionFallbackAttempted();
         // A pending name means this is a Sign Up completing — the
         // pending-profile-name effect below applies it and toasts
         // "Account created" itself once it lands. Otherwise this is a
