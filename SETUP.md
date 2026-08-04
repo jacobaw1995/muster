@@ -556,9 +556,6 @@ Phases 2–4. What's actually still open, as of Phase 14:
 - **`RESEND_API_KEY`** — see Director step 8 above. Until it's set, the
   Phase 13 notification functions run correctly on schedule but skip the
   actual send.
-- **`pwa-512.png`'s maskable safe-area** — the Phase 12 brand kit's artwork
-  has very little padding around the mark, so the OS's circular/rounded
-  mask (Android install icon) may clip it. Cosmetic, not a blocker.
 - **Cloudflare Turnstile keys** — see Director step 9 above. Until both
   `VITE_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` are set, event
   creation works but is unprotected in production.
