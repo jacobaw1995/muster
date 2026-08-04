@@ -1,34 +1,69 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
+import { PasswordField } from "../components/PasswordField";
 import { Wordmark } from "../components/Wordmark";
 import { AlertIcon, AppleIcon, GoogleIcon, XIcon } from "../components/icons";
-import { APPLE_SIGNIN_ENABLED } from "../lib/featureFlags";
-import { isStaleSessionError } from "../lib/api/auth";
+import {
+  APPLE_SIGNIN_ENABLED,
+  GOOGLE_SIGNIN_ENABLED,
+} from "../lib/featureFlags";
+import {
+  isInvalidCredentialsError,
+  isStaleSessionError,
+} from "../lib/api/auth";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
 
 const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
 
+// Google's retired (see featureFlags.ts) and Apple's still pending setup —
+// when neither is enabled there's nothing to show above the email/password
+// form, so the section (buttons + "OR" divider) is skipped entirely rather
+// than rendering an empty divider.
+const SHOW_OAUTH_SECTION = GOOGLE_SIGNIN_ENABLED || APPLE_SIGNIN_ENABLED;
+
+type Step = "credentials" | "magicSent" | "resetSent";
+
 export default function SignInScreen() {
-  const { userId, requestMagicLink, linkOAuth, signOut, authNotice, dismissAuthNotice } =
-    useSession();
+  const {
+    userId,
+    requestMagicLink,
+    signInWithPassword,
+    requestPasswordReset,
+    linkOAuth,
+    signOut,
+    authNotice,
+    dismissAuthNotice,
+  } = useSession();
   const { showToast } = useToast();
-  const [email, setEmail] = useState("");
-  const [step, setStep] = useState<"email" | "sent">("email");
-  const [requesting, setRequesting] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Set by SignUpScreen when it redirects here after an email-already-
+  // registered collision, so the person doesn't have to retype it.
+  const prefillEmail =
+    (location.state as { prefillEmail?: string } | null)?.prefillEmail ?? "";
+
+  const [step, setStep] = useState<Step>("credentials");
+  const [email, setEmail] = useState(prefillEmail);
+  const [password, setPassword] = useState("");
+  const [signing, setSigning] = useState(false);
+  const [magicRequesting, setMagicRequesting] = useState(false);
+  const [resetRequesting, setResetRequesting] = useState(false);
+  const [credentialsError, setCredentialsError] = useState<string | null>(
+    null,
+  );
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(
     null,
   );
 
+  // Dormant since the Auth overhaul (see SHOW_OAUTH_SECTION above) — kept
+  // working, not deleted, so flipping either feature flag back on just
+  // works.
   const handleOAuth = async (provider: "google" | "apple") => {
-    // Guards the (rare) case of a click landing before the auth bootstrap's
-    // own anonymous session exists yet — the button is disabled until
-    // userId is set (see below), so this is a backstop, not the primary
-    // gate. Without a session, linkIdentity has nothing to attach an
-    // identity to and fails; surfacing that plainly beats a silent no-op.
     if (!userId) {
       showToast("Still starting up — try again in a moment.");
       return;
@@ -41,10 +76,6 @@ export default function SignInScreen() {
       console.error(`OAuth (${provider}) sign-in failed:`, err);
       const label = provider === "google" ? "Google" : "Apple";
       if (isStaleSessionError(err)) {
-        // The cached session's user no longer exists server-side, so
-        // every retry would fail the exact same way — recover by
-        // discarding it and starting a fresh anonymous session instead of
-        // just reporting the error.
         try {
           await signOut();
           showToast("Your session needed a refresh — try again now.");
@@ -62,30 +93,97 @@ export default function SignInScreen() {
     }
   };
 
-  const handleContinue = async () => {
+  const handleSignIn = async () => {
     const trimmed = email.trim();
-    if (!trimmed || requesting) return;
-    setRequesting(true);
+    if (!trimmed || !password || signing) return;
+    setSigning(true);
+    setCredentialsError(null);
+    try {
+      await signInWithPassword(trimmed, password);
+      // Same-tab sign-in, no redirect — the bootstrap's own "Signed in"
+      // toast only fires for the redirect-driven paths (magic link,
+      // OAuth), so this path shows it directly.
+      showToast("Signed in");
+      navigate("/");
+    } catch (err) {
+      console.error(err);
+      if (isInvalidCredentialsError(err)) {
+        // Deliberately doesn't say which of email/password was wrong —
+        // that would let someone probe for which emails have accounts.
+        setCredentialsError("Email or password is incorrect");
+      } else {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : "Couldn't sign in — try again";
+        showToast(message);
+      }
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const handleMagicLink = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || magicRequesting) return;
+    setMagicRequesting(true);
     try {
       await requestMagicLink(trimmed);
-      setStep("sent");
+      setStep("magicSent");
     } catch (err) {
       console.error(err);
       showToast("Couldn't send the link — check the address and try again.");
     } finally {
-      setRequesting(false);
+      setMagicRequesting(false);
     }
   };
 
-  const handleResend = () => requestMagicLink(email.trim());
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || resetRequesting) return;
+    setResetRequesting(true);
+    try {
+      await requestPasswordReset(trimmed);
+      setStep("resetSent");
+    } catch (err) {
+      console.error(err);
+      showToast(
+        "Couldn't send the reset email — check the address and try again.",
+      );
+    } finally {
+      setResetRequesting(false);
+    }
+  };
 
-  if (step === "sent") {
+  const handleResendMagicLink = () => requestMagicLink(email.trim());
+  const handleResendReset = () => requestPasswordReset(email.trim());
+
+  if (step === "magicSent") {
     return (
       <ModalShell>
         <CheckEmailStep
           email={email.trim()}
-          onBack={() => setStep("email")}
-          onResend={handleResend}
+          onBack={() => setStep("credentials")}
+          onResend={handleResendMagicLink}
+        />
+      </ModalShell>
+    );
+  }
+
+  if (step === "resetSent") {
+    return (
+      <ModalShell>
+        <CheckEmailStep
+          email={email.trim()}
+          onBack={() => setStep("credentials")}
+          onResend={handleResendReset}
+          description={
+            <>
+              We sent a password reset link to{" "}
+              <span className="font-bold text-ink">{email.trim()}</span> —
+              tap it to set a new password.
+            </>
+          }
         />
       </ModalShell>
     );
@@ -122,28 +220,97 @@ export default function SignInScreen() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        <button
-          type="button"
-          onClick={() => handleOAuth("google")}
-          disabled={oauthLoading !== null}
-          className={oauthButtonClass}
-        >
-          <GoogleIcon />
-          {oauthLoading === "google" ? "Connecting…" : "Continue with Google"}
-        </button>
-        {APPLE_SIGNIN_ENABLED && (
-          <button
-            type="button"
-            onClick={() => handleOAuth("apple")}
-            disabled={oauthLoading !== null}
-            className={oauthButtonClass}
-          >
-            <AppleIcon />
-            {oauthLoading === "apple" ? "Connecting…" : "Continue with Apple"}
-          </button>
-        )}
-      </div>
+      {SHOW_OAUTH_SECTION && (
+        <>
+          <div className="flex flex-col gap-2.5">
+            {GOOGLE_SIGNIN_ENABLED && (
+              <button
+                type="button"
+                onClick={() => handleOAuth("google")}
+                disabled={oauthLoading !== null}
+                className={oauthButtonClass}
+              >
+                <GoogleIcon />
+                {oauthLoading === "google"
+                  ? "Connecting…"
+                  : "Continue with Google"}
+              </button>
+            )}
+            {APPLE_SIGNIN_ENABLED && (
+              <button
+                type="button"
+                onClick={() => handleOAuth("apple")}
+                disabled={oauthLoading !== null}
+                className={oauthButtonClass}
+              >
+                <AppleIcon />
+                {oauthLoading === "apple"
+                  ? "Connecting…"
+                  : "Continue with Apple"}
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="h-px flex-1 bg-line" />
+            <span className="font-mono text-[10px] font-semibold text-ink-dim">
+              OR
+            </span>
+            <div className="h-px flex-1 bg-line" />
+          </div>
+        </>
+      )}
+
+      <label className="flex flex-col gap-1.5">
+        <span className="font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim">
+          EMAIL
+        </span>
+        <input
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setCredentialsError(null);
+          }}
+          type="email"
+          placeholder="you@example.com"
+          className="rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
+        />
+      </label>
+
+      <PasswordField
+        label="PASSWORD"
+        value={password}
+        onChange={(value) => {
+          setPassword(value);
+          setCredentialsError(null);
+        }}
+        placeholder="Your password"
+        autoComplete="current-password"
+      />
+
+      <button
+        type="button"
+        onClick={handleForgotPassword}
+        disabled={!email.trim() || resetRequesting}
+        className="self-end font-sans text-[11.5px] font-semibold text-accent disabled:opacity-45"
+      >
+        {resetRequesting ? "Sending…" : "Forgot password?"}
+      </button>
+
+      {credentialsError && (
+        <div className="text-center font-sans text-[11.5px] font-semibold text-danger">
+          {credentialsError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleSignIn}
+        disabled={!email.trim() || !password || signing}
+        className="rounded-[12px] border-none bg-signal p-[15px] font-sans text-sm font-bold text-signal-on disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        {signing ? "SIGNING IN…" : "SIGN IN"}
+      </button>
 
       <div className="flex items-center gap-2.5">
         <div className="h-px flex-1 bg-line" />
@@ -153,26 +320,13 @@ export default function SignInScreen() {
         <div className="h-px flex-1 bg-line" />
       </div>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10.5px] font-semibold tracking-[0.06em] text-ink-dim">
-          EMAIL
-        </span>
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          type="email"
-          placeholder="you@example.com"
-          className="rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
-        />
-      </label>
-
       <button
         type="button"
-        onClick={handleContinue}
-        disabled={!email.trim() || requesting}
-        className="rounded-[12px] border-none bg-signal p-[15px] font-sans text-sm font-bold text-signal-on disabled:cursor-not-allowed disabled:opacity-45"
+        onClick={handleMagicLink}
+        disabled={!email.trim() || magicRequesting}
+        className={oauthButtonClass}
       >
-        {requesting ? "SENDING LINK…" : "CONTINUE"}
+        {magicRequesting ? "Sending…" : "Email me a link instead"}
       </button>
 
       <div className="flex justify-center gap-1.5 font-sans text-xs font-semibold">

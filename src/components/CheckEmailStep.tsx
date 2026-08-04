@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronLeftIcon, MailIcon } from "./icons";
 
 /**
@@ -7,17 +7,24 @@ import { ChevronLeftIcon, MailIcon } from "./icons";
  * There's nothing to submit here: the session is picked up automatically
  * when the browser returns via the emailed link (see SessionContext's auth
  * bootstrap), so this just confirms the email went out and offers a resend.
+ *
+ * Also reused (Auth overhaul) for the "forgot password" confirmation —
+ * `title`/`description` override the default magic-link copy for that case.
  */
 interface CheckEmailStepProps {
   email: string;
   onBack: () => void;
   onResend: () => Promise<void>;
+  title?: string;
+  description?: ReactNode;
 }
 
 export function CheckEmailStep({
   email,
   onBack,
   onResend,
+  title = "CHECK YOUR EMAIL",
+  description,
 }: CheckEmailStepProps) {
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
@@ -53,13 +60,15 @@ export function CheckEmailStep({
       <div className="flex flex-col items-center gap-3 py-4 text-center">
         <MailIcon className="text-accent" />
         <div className="flex w-full flex-col gap-1.5">
-          <div className="font-display text-[26px] text-ink">
-            CHECK YOUR EMAIL
-          </div>
+          <div className="font-display text-[26px] text-ink">{title}</div>
           <div className="font-sans text-[12.5px] leading-[1.5] text-ink-dim">
-            We sent a sign-in link to{" "}
-            <span className="font-bold text-ink">{email}</span> — tap it to
-            finish signing in.
+            {description ?? (
+              <>
+                We sent a sign-in link to{" "}
+                <span className="font-bold text-ink">{email}</span> — tap it
+                to finish signing in.
+              </>
+            )}
           </div>
         </div>
       </div>

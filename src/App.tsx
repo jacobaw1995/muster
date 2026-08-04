@@ -1,11 +1,5 @@
 import { useEffect } from "react";
-import {
-  BrowserRouter,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ModalLayout } from "./components/ModalLayout";
 import CreateScreen from "./routes/CreateScreen";
@@ -24,14 +18,23 @@ import { useSession } from "./state/SessionContext";
  * always returns to "/", not "/sign-in", so without this the banner would
  * have nowhere to render. Needs router context, so it lives inside
  * BrowserRouter rather than in SessionContext (which sits above it).
+ *
+ * Deliberately checks `window.location.pathname` (the real, synchronously-
+ * updated browser location) rather than React Router's `useLocation()` —
+ * SignUpScreen's own email-collision handler also sets authNotice AND
+ * navigate()s to /sign-in itself (with a prefilled-email state payload) in
+ * the same synchronous handler. `useLocation()`'s value can still read the
+ * pre-navigation path for this effect's render, so checking it here would
+ * fire a second, state-less navigate("/sign-in") that clobbers the first
+ * one's state — window.location.pathname reflects the pushState immediately
+ * and avoids that race entirely.
  */
 function AuthNoticeRedirect() {
   const { authNotice } = useSession();
-  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (authNotice && location.pathname !== "/sign-in") {
+    if (authNotice && window.location.pathname !== "/sign-in") {
       navigate("/sign-in");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

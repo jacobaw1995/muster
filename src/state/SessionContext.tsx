@@ -34,6 +34,9 @@ import {
   isIdentityCollisionError,
   linkOrSignInWithOAuth,
   requestMagicLink as apiRequestMagicLink,
+  requestPasswordReset as apiRequestPasswordReset,
+  signInWithPassword as apiSignInWithPassword,
+  signUpWithPassword as apiSignUpWithPassword,
   type OAuthProvider,
 } from "../lib/api/auth";
 import {
@@ -208,14 +211,16 @@ interface SessionContextValue {
   userId: string | null;
 
   /**
-   * Persistent, dismissible notice for SignInScreen — set when an OAuth
-   * redirect comes back as a same-email identity collision (see
-   * isIdentityCollisionError), telling the user to sign in with their
-   * email link instead. Null the rest of the time. Deliberately not a
-   * toast: a toast vanishes in ~2s, too fast for someone to read and act
-   * on right after landing from a redirect.
+   * Persistent, dismissible notice for SignInScreen — set either when a
+   * (now-dormant) OAuth redirect comes back as a same-email identity
+   * collision, or when Sign Up hits an email already registered with a
+   * password account (see isEmailAlreadyRegisteredError). Null the rest
+   * of the time. Deliberately not a toast: a toast vanishes in ~2s, too
+   * fast for someone to read and act on right after landing here.
    */
   authNotice: string | null;
+  /** Sets authNotice directly — used by SignUpScreen's email-collision handling. */
+  showAuthNotice: (message: string) => void;
   /** Clears authNotice — called when the user dismisses the banner. */
   dismissAuthNotice: () => void;
 
@@ -255,8 +260,19 @@ interface SessionContextValue {
    * and the session is picked up automatically — see the bootstrap effect.
    */
   requestMagicLink: (email: string) => Promise<void>;
-  /** Google/Apple — upgrades the anonymous session in place (or signs in normally if already permanent). Rejects without crashing if the provider isn't configured yet in the dashboard. */
+  /** Google/Apple — dormant since the Auth overhaul (see featureFlags.ts's GOOGLE_SIGNIN_ENABLED), kept for reversibility. Upgrades the anonymous session in place (or signs in normally if already permanent). Rejects without crashing if the provider isn't configured yet in the dashboard. */
   linkOAuth: (provider: OAuthProvider) => Promise<void>;
+  /**
+   * Primary Sign Up path — creates a password account. An anonymous
+   * session upgrades in place (preserving auth.uid()); anyone else gets a
+   * normal signUp. With "Confirm email" off in the Supabase dashboard,
+   * this signs the user in immediately, no email round trip required.
+   */
+  signUpWithPassword: (email: string, password: string) => Promise<void>;
+  /** Primary Sign In path — signs into an existing password account directly (no anonymous-session merge; see lib/api/auth.ts). */
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  /** Sends a "reset your password" email — the one remaining sign-in path that still depends on email delivery. */
+  requestPasswordReset: (email: string) => Promise<void>;
   /** Updates the caller's own profile row (name/contact/avatarUrl) — fields left undefined are untouched. */
   updateProfile: (patch: {
     name?: string;
@@ -307,6 +323,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       : null,
   );
   const dismissAuthNotice = useCallback(() => setAuthNotice(null), []);
+  const showAuthNotice = useCallback(
+    (message: string) => setAuthNotice(message),
+    [],
+  );
 
   const [events, setEvents] = useState<MusterEvent[]>([]);
   const [rsvp, setRsvpMap] = useState<Record<string, RsvpStatus>>({});
@@ -723,6 +743,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [isAnonymous],
   );
 
+  const signUpWithPassword = useCallback(
+    (email: string, password: string) =>
+      apiSignUpWithPassword(email, password, isAnonymous),
+    [isAnonymous],
+  );
+
+  const signInWithPassword = useCallback(
+    (email: string, password: string) =>
+      apiSignInWithPassword(email, password),
+    [],
+  );
+
+  const requestPasswordReset = useCallback(
+    (email: string) => apiRequestPasswordReset(email),
+    [],
+  );
+
   const updateProfile = useCallback(
     async (patch: { name?: string; contact?: string; avatarUrl?: string }) => {
       const updated = await upsertProfile(patch);
@@ -894,6 +931,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       retryLoad,
       userId,
       authNotice,
+      showAuthNotice,
       dismissAuthNotice,
       userLocation,
       locationStatus,
@@ -909,6 +947,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       logImpact,
       requestMagicLink,
       linkOAuth,
+      signUpWithPassword,
+      signInWithPassword,
+      requestPasswordReset,
       updateProfile,
       signOut,
       setEventReminders,
@@ -942,6 +983,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       retryLoad,
       userId,
       authNotice,
+      showAuthNotice,
       dismissAuthNotice,
       userLocation,
       locationStatus,
@@ -957,6 +999,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       logImpact,
       requestMagicLink,
       linkOAuth,
+      signUpWithPassword,
+      signInWithPassword,
+      requestPasswordReset,
       updateProfile,
       signOut,
       setEventReminders,

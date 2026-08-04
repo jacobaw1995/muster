@@ -410,6 +410,42 @@ there except the Auth URL configuration in step 5 below.
      intentional so local dev is never blocked, but it means creation is
      **unprotected** in production until you complete this step.
 
+10. **(Phase 16 — Auth overhaul) Email + password is now the primary
+    sign-in method — two dashboard toggles required.** Magic-link-only
+    made every login depend on email delivery, which was failing (see the
+    flag below), so nobody could get in. The client code is already
+    live — until this step is done, Sign Up/Sign In will fail with
+    "Error sending confirmation email" for every attempt, password or
+    magic-link alike.
+    - Supabase dashboard → `muster` project → **Authentication** →
+      **Providers** → **Email**: confirm the Email provider is enabled,
+      and turn **Confirm email** OFF. This makes Sign Up (password) and
+      the anonymous→permanent upgrade instant — no email round trip — and
+      is the actual fix for the "can't log in" problem.
+    - (Optional) If the dashboard exposes a minimum password length
+      setting, consider setting it — the client already enforces 8
+      characters, but a matching server-side floor is a nice-to-have, not
+      required.
+    - **Google sign-in is now retired** (behind `GOOGLE_SIGNIN_ENABLED =
+      false` in `src/lib/featureFlags.ts`) — no dashboard change needed
+      for this, it's a pure client-side hide. The underlying OAuth code
+      and collision-detection are untouched and reversible by flipping
+      that one flag back to `true`.
+    - **⚠️ Flagging, not fixing:** while verifying this deploy, a direct
+      probe of the `muster` project's `/auth/v1/signup` endpoint returned
+      `500 {"error_code":"unexpected_failure","msg":"Error sending
+      confirmation email"}` — the Resend SMTP config (see below) appears
+      to be broken right now, not just "Confirm email" being on. Turning
+      "Confirm email" off works around this for Sign Up/Sign In (neither
+      needs to send mail anymore), but "Forgot password?" and the "email
+      me a link instead" backup will still hit this same failure until
+      the SMTP setup itself is fixed — worth checking Resend's dashboard
+      delivery log and Supabase's Auth logs. Left untouched per your
+      instruction not to change SMTP/Resend config without confirming
+      first — this may also be the same root cause behind the Phase 13
+      event-reminder emails you mentioned, but that needs its own
+      diagnosis.
+
 ### Email sending — Resend SMTP (already configured)
 
 Supabase's built-in email sender is rate-limited (a handful of sends/hour)
@@ -544,9 +580,21 @@ Phases 2–4. What's actually still open, as of Phase 14:
   Supabase still send a magic link, not a `{{ .Token }}` code, so the app's
   OTP code-entry screen has nothing to display yet. See **Deploying
   MUSTER → Director steps** above.
-- **Google / Apple / phone sign-in** — code paths exist and fail gracefully
-  (toast, no crash) but need real provider credentials configured in the
-  Supabase dashboard before they're live.
+- **Google sign-in retired, Apple / phone sign-in still pending** — Google
+  is deliberately hidden as of Phase 16 (`GOOGLE_SIGNIN_ENABLED = false`
+  in featureFlags.ts), not broken; the code is intact and reversible.
+  Apple's and phone's code paths still exist and fail gracefully (toast,
+  no crash) but need real provider credentials configured in the Supabase
+  dashboard before they're live.
+- **Password is now primary, but blocked until Director step 10 is done**
+  — see **Deploying MUSTER → Director steps** above. Until "Confirm
+  email" is turned off, every Sign Up/Sign In attempt (password or magic
+  link) fails with "Error sending confirmation email" — this is the
+  actual fix for the "nobody can log in" problem, not a code change.
+- **Resend SMTP appears broken right now** — flagged, not fixed, per your
+  instruction. See Director step 10's callout above; worth checking
+  alongside the Phase 13 event-reminder email issue since they likely
+  share a root cause.
 - **Settings avatar for anonymous→permanent upgrades via `updateUser`
   outside the app's own OTP flow** — edge case only; the normal in-app path
   (Sign Up/Sign In → OtpStep → verify) upserts the profile correctly.
