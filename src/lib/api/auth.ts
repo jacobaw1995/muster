@@ -29,35 +29,6 @@ export async function requestMagicLink(
   if (error) throw error;
 }
 
-const OAUTH_PROVIDER_STORAGE_KEY = "muster:last-oauth-provider";
-
-/**
- * Stashed immediately before every OAuth redirect so that if it comes back
- * as an identity-collision error (see isIdentityCollisionError below), the
- * app knows which provider to retry as a plain sign-in without having to
- * guess. sessionStorage, not localStorage, so it never outlives this tab.
- */
-function stashOAuthProvider(provider: OAuthProvider): void {
-  try {
-    window.sessionStorage.setItem(OAUTH_PROVIDER_STORAGE_KEY, provider);
-  } catch {
-    // Can throw in locked-down/private-browsing contexts — non-fatal, the
-    // collision fallback just defaults to "google" (the only enabled
-    // provider today) if it can't read this back.
-  }
-}
-
-/** Inverse of stashOAuthProvider — defaults to "google" if unreadable/unset. */
-export function takeStashedOAuthProvider(): OAuthProvider {
-  try {
-    const stored = window.sessionStorage.getItem(OAUTH_PROVIDER_STORAGE_KEY);
-    if (stored === "google" || stored === "apple") return stored;
-  } catch {
-    // see stashOAuthProvider
-  }
-  return "google";
-}
-
 /**
  * Anonymous session → `linkIdentity` upgrades it to permanent in place
  * (same auth.uid()). Already-permanent session → plain OAuth sign-in.
@@ -69,7 +40,6 @@ export async function linkOrSignInWithOAuth(
   provider: OAuthProvider,
   isAnonymous: boolean,
 ): Promise<void> {
-  stashOAuthProvider(provider);
   const options = { redirectTo: window.location.origin };
   const { error } = isAnonymous
     ? await supabase.auth.linkIdentity({ provider, options })
@@ -105,67 +75,6 @@ export function isIdentityCollisionError(
       text.includes("registered") ||
       text.includes("linked"))
   );
-}
-
-/**
- * Retries as a plain sign-in for the SAME provider after an
- * identity-already-exists collision on a linkIdentity() attempt —
- * Supabase treats the verified provider email as belonging to whichever
- * account it's already linked to, so this signs the user straight into
- * their EXISTING account. Deliberately does NOT merge the current
- * anonymous guest session's data (RSVPs/itinerary from this browser) into
- * that account — someone hitting this path already has a real account and
- * wants THAT one, not their throwaway guest session's few minutes of
- * browsing.
- */
-export async function signInWithOAuthAfterCollision(
-  provider: OAuthProvider,
-): Promise<void> {
-  const options = { redirectTo: window.location.origin };
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options,
-  });
-  if (error) throw error;
-}
-
-const COLLISION_FALLBACK_ATTEMPTED_KEY =
-  "muster:oauth-collision-fallback-attempted";
-
-/**
- * Loop guard for the collision auto-fallback in SessionContext's bootstrap
- * — set right before attempting signInWithOAuthAfterCollision, checked
- * before attempting it, so a genuinely repeated failure shows a terminal
- * error instead of bouncing between Supabase and Google forever. Never
- * cleared on failure (only on eventual real sign-in success, in
- * SessionContext) so it also survives a manual retryLoad() re-running the
- * same bootstrap effect within the same page load.
- */
-export function hasAttemptedCollisionFallback(): boolean {
-  try {
-    return (
-      window.sessionStorage.getItem(COLLISION_FALLBACK_ATTEMPTED_KEY) === "1"
-    );
-  } catch {
-    return false;
-  }
-}
-
-export function markCollisionFallbackAttempted(): void {
-  try {
-    window.sessionStorage.setItem(COLLISION_FALLBACK_ATTEMPTED_KEY, "1");
-  } catch {
-    // Non-fatal — worst case a genuinely-looping failure retries once more
-    // than intended before the terminal error toast shows.
-  }
-}
-
-export function clearCollisionFallbackAttempted(): void {
-  try {
-    window.sessionStorage.removeItem(COLLISION_FALLBACK_ATTEMPTED_KEY);
-  } catch {
-    // no-op
-  }
 }
 
 /**

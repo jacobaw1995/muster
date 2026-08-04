@@ -31,14 +31,9 @@ import {
   type UpdateEventInput,
 } from "../lib/api/events";
 import {
-  clearCollisionFallbackAttempted,
-  hasAttemptedCollisionFallback,
   isIdentityCollisionError,
   linkOrSignInWithOAuth,
-  markCollisionFallbackAttempted,
   requestMagicLink as apiRequestMagicLink,
-  signInWithOAuthAfterCollision,
-  takeStashedOAuthProvider,
   type OAuthProvider,
 } from "../lib/api/auth";
 import {
@@ -212,6 +207,18 @@ interface SessionContextValue {
   /** Current session's user id (anonymous or permanent) — null only until the bootstrap resolves. Handy for e.g. attributing storage uploads. */
   userId: string | null;
 
+  /**
+   * Persistent, dismissible notice for SignInScreen — set when an OAuth
+   * redirect comes back as a same-email identity collision (see
+   * isIdentityCollisionError), telling the user to sign in with their
+   * email link instead. Null the rest of the time. Deliberately not a
+   * toast: a toast vanishes in ~2s, too fast for someone to read and act
+   * on right after landing from a redirect.
+   */
+  authNotice: string | null;
+  /** Clears authNotice — called when the user dismisses the banner. */
+  dismissAuthNotice: () => void;
+
   /** Null until `requestLocation` succeeds — real device coordinates (Phase 7), used for distance labels, the radius filter, and nearest-first sort. */
   userLocation: Coords | null;
   /** Distinguishes "haven't asked" from "asked and denied" from "asked and it's just unavailable" so the map/filter UI can hint appropriately. */
@@ -288,6 +295,18 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<ProfileState | null>(null);
+  // Lazy initializer, not an effect — authRedirectErrorCode/authRedirectError
+  // are plain constants captured once at import time (see lib/supabase.ts),
+  // so whether this page load is a same-email OAuth collision is already
+  // known synchronously on first render. Setting this from inside an effect
+  // instead would trigger React's "don't setState synchronously in an
+  // effect" cascading-render warning for no benefit.
+  const [authNotice, setAuthNotice] = useState<string | null>(() =>
+    isIdentityCollisionError(authRedirectErrorCode, authRedirectError)
+      ? "Looks like you already have an account with this email. Sign in with your email link below."
+      : null,
+  );
+  const dismissAuthNotice = useCallback(() => setAuthNotice(null), []);
 
   const [events, setEvents] = useState<MusterEvent[]>([]);
   const [rsvp, setRsvpMap] = useState<Record<string, RsvpStatus>>({});
@@ -343,29 +362,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // "Continue with Google" with an email that's already a DIFFERENT
     // existing account can't linkIdentity() onto the current anonymous
     // session — Supabase reports that collision back on the OAuth RETURN
-    // leg (a URL error, not a synchronous throw at click time), which is
-    // why it's handled here in bootstrap rather than in the click handler.
+    // leg (a URL error, not a synchronous throw at click time). We
+    // deliberately do NOT try to auto-merge or auto-retry this — GoTrue
+    // won't link a Google identity onto an account it didn't create it on
+    // (account-takeover protection), so the only real fix is telling the
+    // user to sign in with the email they already have — see authNotice's
+    // initializer above, which already set it for this exact case. The
+    // non-collision case still gets its generic error toast here.
     const isCollision = isIdentityCollisionError(
       authRedirectErrorCode,
       authRedirectError,
     );
-    // Only the FIRST collision return gets auto-retried (see
-    // hasAttemptedCollisionFallback below) — a repeat needs its own
-    // terminal toast rather than the generic one below, and rather than
-    // silently falling through with no explanation at all.
-    const willAutoRetryCollision = isCollision && !hasAttemptedCollisionFallback();
 
-    if (authRedirectError && !authErrorShown.current) {
+    if (authRedirectError && !isCollision && !authErrorShown.current) {
       authErrorShown.current = true;
-      if (willAutoRetryCollision) {
-        // The collision case gets its own "signing you in…" toast + redirect
-        // below instead of this generic one — showing both would be
-        // confusing mid-redirect.
-      } else if (isCollision) {
-        showToast("Couldn't sign in with Google — try email instead.");
-      } else {
-        showToast(`Sign-in failed: ${authRedirectError}`);
-      }
+      showToast(`Sign-in failed: ${authRedirectError}`);
     }
 
     async function establishAnonymousSession() {
@@ -381,32 +392,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     async function bootstrap() {
-      if (willAutoRetryCollision) {
-        // Fall back to a plain sign-in for the same provider: Supabase
-        // treats the verified email as belonging to the account it's
-        // already linked to, so this signs the user straight into their
-        // EXISTING account instead of failing outright. Marked BEFORE the
-        // redirect attempt (not after) so a repeat failure — including one
-        // from a manual retryLoad() re-running this same effect within the
-        // same page load — shows a terminal error instead of retrying
-        // forever; only cleared on genuine sign-in success, below. Checked
-        // first, before ever touching getSession()/signInAnonymously(), so
-        // a fresh anonymous session can't get created and clobber this
-        // redirect mid-flight — the exact bug the hadAuthRedirect branch
-        // further down already exists to prevent for the non-collision case.
-        markCollisionFallbackAttempted();
-        showToast("Signing you into your existing account…");
-        try {
-          await signInWithOAuthAfterCollision(takeStashedOAuthProvider());
-          // Success redirects the browser away — nothing else runs here.
-        } catch (err) {
-          console.error("Collision fallback sign-in failed:", err);
-          showToast("Couldn't sign in — try email instead.");
-          await establishAnonymousSession();
-        }
-        return;
-      }
-
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
       if (data.session) {
@@ -448,10 +433,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       if (!newSession.user.is_anonymous) {
         awaitingRedirectReturn.current = false;
-        // A genuine sign-in landed — clear the collision-fallback loop
-        // guard so it doesn't block some unrelated future OAuth attempt
-        // later in this same tab. Harmless no-op when it was never set.
-        clearCollisionFallbackAttempted();
         // A pending name means this is a Sign Up completing — the
         // pending-profile-name effect below applies it and toasts
         // "Account created" itself once it lands. Otherwise this is a
@@ -912,6 +893,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadError,
       retryLoad,
       userId,
+      authNotice,
+      dismissAuthNotice,
       userLocation,
       locationStatus,
       requestLocation,
@@ -958,6 +941,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadError,
       retryLoad,
       userId,
+      authNotice,
+      dismissAuthNotice,
       userLocation,
       locationStatus,
       requestLocation,

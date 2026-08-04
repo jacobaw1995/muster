@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
 import { Wordmark } from "../components/Wordmark";
-import { AppleIcon, GoogleIcon } from "../components/icons";
+import { AlertIcon, AppleIcon, GoogleIcon, XIcon } from "../components/icons";
 import { APPLE_SIGNIN_ENABLED } from "../lib/featureFlags";
 import { isStaleSessionError } from "../lib/api/auth";
 import { useSession } from "../state/SessionContext";
@@ -13,7 +13,8 @@ const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function SignInScreen() {
-  const { userId, requestMagicLink, linkOAuth, signOut } = useSession();
+  const { userId, requestMagicLink, linkOAuth, signOut, authNotice, dismissAuthNotice } =
+    useSession();
   const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<"email" | "sent">("email");
@@ -95,6 +96,23 @@ export default function SignInScreen() {
       <CloseButton className="self-start" />
 
       <Wordmark height={24} />
+
+      {authNotice && (
+        <div className="flex items-start gap-2.5 rounded-card border border-warn/40 bg-warn/15 p-3 text-warn">
+          <AlertIcon size={17} className="mt-0.5 flex-none" />
+          <span className="flex-1 font-sans text-[12px] font-semibold leading-snug">
+            {authNotice}
+          </span>
+          <button
+            type="button"
+            onClick={dismissAuthNotice}
+            aria-label="Dismiss"
+            className="flex-none border-none bg-transparent p-0 text-warn"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <div className="font-display text-[26px] text-ink">SIGN IN</div>
