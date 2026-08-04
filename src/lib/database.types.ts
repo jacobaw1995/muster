@@ -28,7 +28,9 @@ export type Database = {
           duration_label: string
           duration_minutes: number | null
           going_count: number
+          hidden: boolean
           id: string
+          ip_address: unknown
           latitude: number | null
           location: string | null
           longitude: number | null
@@ -58,7 +60,9 @@ export type Database = {
           duration_label: string
           duration_minutes?: number | null
           going_count?: number
+          hidden?: boolean
           id?: string
+          ip_address?: unknown
           latitude?: number | null
           location?: string | null
           longitude?: number | null
@@ -88,7 +92,9 @@ export type Database = {
           duration_label?: string
           duration_minutes?: number | null
           going_count?: number
+          hidden?: boolean
           id?: string
+          ip_address?: unknown
           latitude?: number | null
           location?: string | null
           longitude?: number | null
@@ -304,6 +310,38 @@ export type Database = {
           new_events_nearby?: boolean
         }
         Relationships: []
+      }
+      reports: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          reason: string
+          reporter_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          reason: string
+          reporter_id?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          reason?: string
+          reporter_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rsvps: {
         Row: {

@@ -5,6 +5,7 @@ import { CategoryStep } from "../components/create/CategoryStep";
 import { DetailsStep } from "../components/create/DetailsStep";
 import { ReviewStep } from "../components/create/ReviewStep";
 import { ChevronLeftIcon, XIcon } from "../components/icons";
+import { TURNSTILE_CONFIGURED, Turnstile } from "../components/Turnstile";
 import { geocodeAddress } from "../lib/api/geocode";
 import {
   deriveDurationSelection,
@@ -12,6 +13,7 @@ import {
 } from "../lib/duration";
 import {
   formatTimeOfDay,
+  isValidHttpUrl,
   parseTimeOfDayTo24h,
   todayIso,
 } from "../lib/format";
@@ -111,6 +113,11 @@ export default function CreateScreen() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM);
   const [posting, setPosting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // Bumped after a failed submit to force the Turnstile widget to fully
+  // remount — tokens are single-use, so a retry needs a fresh widget
+  // instance, not just clearing the token.
+  const [turnstileKey, setTurnstileKey] = useState(0);
 
   const isEditMode = Boolean(editId);
   const editingEvent = editId ? events.find((e) => e.id === editId) : undefined;
@@ -178,15 +185,21 @@ export default function CreateScreen() {
     );
   }
 
+  const turnstileRequired = !isEditMode && TURNSTILE_CONFIGURED;
   const nextDisabled =
     (step === 0 && !form.category) ||
     (step === 1 &&
-      (!form.title.trim() || !form.city.trim() || !form.state.trim()));
+      (!form.title.trim() || !form.city.trim() || !form.state.trim())) ||
+    (step === TOTAL_STEPS - 1 && turnstileRequired && !turnstileToken);
 
   const handleBack = () => setStep((s) => Math.max(0, s - 1));
 
   const handleSubmit = async () => {
     if (posting) return;
+    if (form.website.trim() && !isValidHttpUrl(form.website.trim())) {
+      showToast("Enter a valid http:// or https:// website link");
+      return;
+    }
     setPosting(true);
     const isCustom = form.category === "custom";
     const category = isCustom
@@ -263,7 +276,7 @@ export default function CreateScreen() {
         navigate(`/events/${editId}`);
       } else {
         const input: NewEventInput = { ...payload, organizer: "You" };
-        const created = await addEvent(input);
+        const created = await addEvent(input, turnstileToken);
         if (form.going) {
           setRsvp(created.id, "yes");
           addToItinerary(created.id);
@@ -276,11 +289,21 @@ export default function CreateScreen() {
       }
     } catch (err) {
       console.error(err);
-      showToast(
-        isEditMode
-          ? "Couldn't save changes — try again"
-          : "Couldn't post your event — try again",
-      );
+      if (isEditMode) {
+        showToast("Couldn't save changes — try again");
+      } else {
+        // The create-event Edge Function's own error message (Turnstile
+        // failure, rate limit, content validation) is already clean,
+        // user-facing text — see api/events.ts. A Turnstile token is
+        // single-use, so force a fresh widget instance for the retry.
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : "Couldn't post your event — try again";
+        showToast(message);
+        setTurnstileToken(null);
+        setTurnstileKey((k) => k + 1);
+      }
     } finally {
       setPosting(false);
     }
@@ -330,7 +353,12 @@ export default function CreateScreen() {
         {step === 1 && <BasicsStep form={form} onChange={update} />}
         {step === 2 && <DetailsStep form={form} onChange={update} />}
         {step === 3 && (
-          <ReviewStep form={form} onChange={update} isEditMode={isEditMode} />
+          <>
+            <ReviewStep form={form} onChange={update} isEditMode={isEditMode} />
+            {!isEditMode && (
+              <Turnstile key={turnstileKey} onToken={setTurnstileToken} />
+            )}
+          </>
         )}
       </div>
 

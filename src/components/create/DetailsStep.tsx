@@ -68,6 +68,7 @@ export function DetailsStep({ form, onChange }: DetailsStepProps) {
           onChange={(e) => onChange({ notes: e.target.value })}
           placeholder="Bring water, meet at the flagpole…"
           rows={3}
+          maxLength={2000}
           className={`${inputClass} resize-none font-medium`}
         />
       </label>

@@ -379,6 +379,37 @@ there except the Auth URL configuration in step 5 below.
      "tomorrow" per the `kind`), then check the JSON response's `sent`
      count and the Resend dashboard's delivery log.
 
+9. **(Phase 14) Cloudflare Turnstile — event-creation anti-spam.** Event
+   creation now runs through a `create-event` Edge Function that verifies a
+   Turnstile token server-side before inserting — a free CAPTCHA
+   alternative from Cloudflare, usually invisible to real users.
+   - Create a free Cloudflare account (if you don't have one) →
+     dashboard → **Turnstile** → **Add widget**.
+   - Domain(s): `eventmuster.com` (and `www.eventmuster.com`) for
+     production, plus `localhost` if you want it exercised in local dev
+     too (optional — see below, it degrades gracefully without this).
+   - Widget mode: **Managed** (Cloudflare's default — invisible unless it
+     needs to challenge a suspicious request).
+   - Copy the **Site Key** and **Secret Key** it generates.
+   - Vercel → Settings → Environment Variables, add for **both Production
+     and Preview**:
+
+     | Key | Value |
+     |---|---|
+     | `VITE_TURNSTILE_SITE_KEY` | the Site Key (public — safe to ship in the client bundle) |
+
+   - Supabase dashboard → `muster` project → Edge Functions → Secrets →
+     add `TURNSTILE_SECRET_KEY` = the Secret Key (never in Vercel/client
+     env — this one stays server-side only).
+   - Redeploy the Vercel app after adding `VITE_TURNSTILE_SITE_KEY` (it's
+     read at build time, same as the Supabase vars).
+   - **Until both are set**, event creation still works end-to-end: the
+     client widget renders nothing when `VITE_TURNSTILE_SITE_KEY` is
+     unset, and the `create-event` function skips verification (with a
+     `console.warn`) when `TURNSTILE_SECRET_KEY` is unset — this is
+     intentional so local dev is never blocked, but it means creation is
+     **unprotected** in production until you complete this step.
+
 ### Email sending — Resend SMTP (already configured)
 
 Supabase's built-in email sender is rate-limited (a handful of sends/hour)
@@ -433,11 +464,81 @@ API (see Director step 8 above):
   Supabase into every Edge Function — no manual secret needed for that
   one, only `RESEND_API_KEY`).
 
+### Anti-spam hardening (Phase 14)
+
+The app was live with open guest writes and no abuse protection —
+migration `20260807100000_anti_spam_hardening.sql` plus the new
+`create-event` Edge Function close the main gaps ahead of wider promotion.
+
+- **Turnstile-gated creation.** Event creation goes through a new
+  `create-event` Edge Function (`verify_jwt=true`, runs with the caller's
+  own forwarded JWT so `created_by`/RLS behave exactly as a direct insert
+  would) that verifies the Turnstile token server-side against Cloudflare
+  before inserting. See Director step 9 above for the Cloudflare setup —
+  until it's configured, creation still works but is unprotected. The edit
+  flow deliberately stays a direct table update (lower-risk vector, not
+  worth the extra hop).
+- **Rate limits — DB triggers, not client-trusted.** `events`, `rsvps`, and
+  `impact_logs` each have a `BEFORE INSERT` trigger doing a counted query
+  over recent rows by `created_by`/`attendee_id`/`owner_id` (and, for
+  events, also by `ip_address` — captured server-side in `create-event`
+  from the `x-forwarded-for` header). These fire on **any** insert path,
+  including a client that bypasses `create-event` and calls PostgREST
+  directly with a valid JWT — the DB is the real enforcement layer, the
+  Edge Function is just where the friendly error message comes from.
+  Thresholds are generous (see the migration for exact numbers) — meant to
+  stop abuse, not throttle real users.
+- **Content caps.** `events` has check constraints on title (≤120, non-
+  empty after trim), notes (≤2000), venue/street/city/state/zip lengths,
+  and `website` (must be `http://` or `https://` — rejects
+  `javascript:`/`data:`/etc. by construction). Mirrored client-side via
+  `maxLength` attributes and `isValidHttpUrl()` (`src/lib/format.ts`) for
+  a fast, friendly error before ever hitting the DB — the DB constraint is
+  what actually matters.
+- **Server-side RSVP capacity.** A trigger on `rsvps` rejects a new/updated
+  YES when the event's live going-count is already at capacity, recomputed
+  server-side from `events.capacity` — the client-side gate in
+  `EventDetailScreen.tsx` is now UX only, not the source of truth. Only
+  fires on a transition *into* YES, so existing YES holders are never
+  bumped by someone else's attempted join. Verified live (Phase 14): a
+  second YES against a capacity-1 event is rejected with `P0001: This
+  event is at capacity`, while re-saving the existing holder's own YES row
+  still succeeds.
+- **Reporting + auto-hide — no admin UI yet.** "Report event" on Event
+  Detail (hidden for the event's own creator) inserts into `reports`
+  (`event_id`, `reporter_id = auth.uid()`, `reason`, unique per
+  reporter+event — a repeat report surfaces a friendly "already reported"
+  toast instead of erroring). Once an event accumulates 3+ *distinct*
+  reporters, a `SECURITY DEFINER` trigger (`auto_hide_reported_event`)
+  sets `events.hidden = true` — pending review, not deleted. Hidden events
+  are excluded from the public Map/list/search/detail via RLS (`events are
+  publicly readable unless hidden`) but the creator can still see and edit
+  their own; nothing in the client needed to change for this since
+  `listEvents`/`getEvent` already do unfiltered `select("*")` and RLS
+  handles the rest transparently.
+  - **Reviewing hidden/reported events (Supabase SQL Editor — no admin UI
+    this phase):**
+    ```sql
+    -- See what's been reported and why
+    select r.*, e.title, e.hidden
+    from reports r join events e on e.id = r.event_id
+    order by r.created_at desc;
+
+    -- Un-hide an event once reviewed and judged fine
+    update events set hidden = false where id = '<event-id>';
+
+    -- Or remove it for good (cascades to its rsvps/itinerary/impact rows)
+    delete from events where id = '<event-id>';
+    ```
+  - A proper admin/moderation UI (queue, one-click restore/ban, report
+    volume dashboard) is a good candidate for a future phase — out of
+    scope here per the Phase 14 brief.
+
 ## Remaining open TODOs
 
 Everything in the original Phase 1 list (Supabase backend, real photo
 upload, desktop two-pane layout, event-not-found handling) shipped in
-Phases 2–4. What's actually still open, as of Phase 13:
+Phases 2–4. What's actually still open, as of Phase 14:
 
 - **OTP email template** — the Confirm-signup / Change-email templates in
   Supabase still send a magic link, not a `{{ .Token }}` code, so the app's
@@ -458,9 +559,13 @@ Phases 2–4. What's actually still open, as of Phase 13:
 - **`pwa-512.png`'s maskable safe-area** — the Phase 12 brand kit's artwork
   has very little padding around the mark, so the OS's circular/rounded
   mask (Android install icon) may clip it. Cosmetic, not a blocker.
-- **Deferred to a later, post-deployment phase on purpose** (per the
-  Phase 4 brief, not an oversight): push notifications (email-only as of
-  Phase 13) and anti-spam hardening (rate limits, moderation, captcha, and
-  moving RSVP-at-capacity enforcement server-side via a DB check/trigger —
-  recommended before wide promotion, especially now that Phase 13 can send
-  real email at scale).
+- **Cloudflare Turnstile keys** — see Director step 9 above. Until both
+  `VITE_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` are set, event
+  creation works but is unprotected in production.
+- **No admin/moderation UI** — reports and hidden events are reviewed via
+  the Supabase SQL Editor for now (see **Anti-spam hardening (Phase 14)**
+  above). A real admin dashboard (queue, one-click restore, report volume)
+  is a good candidate for a future phase, deferred on purpose per the
+  Phase 14 brief, not an oversight.
+- **Deferred to a later, post-deployment phase on purpose**: push
+  notifications (email-only as of Phase 13).

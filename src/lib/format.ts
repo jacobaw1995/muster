@@ -90,3 +90,8 @@ export function getInitials(
   if (trimmedContact) return trimmedContact[0].toUpperCase();
   return "?";
 }
+
+/** Mirrors the DB's events_website_format check constraint (Phase 14) — a real http(s) URL only, rejecting javascript:/data:/mailto: etc. by construction. Client-side check for a fast, friendly error before the DB constraint would reject it anyway. */
+export function isValidHttpUrl(value: string): boolean {
+  return /^https?:\/\/\S+$/i.test(value);
+}

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorState } from "../components/ErrorState";
 import { PhotoSlot } from "../components/PhotoSlot";
+import { ReportSheet } from "../components/ReportSheet";
 import { ShareSheet } from "../components/ShareSheet";
 import {
   CalendarIcon,
@@ -10,6 +11,7 @@ import {
   ChevronLeftIcon,
   ClockIcon,
   ExternalLinkIcon,
+  FlagIcon,
   MapPinIcon,
   MapPinOffIcon,
   PeopleIcon,
@@ -18,6 +20,7 @@ import {
 import { eventDistanceMi } from "../lib/distance";
 import { fmtDateLabel, fmtDistance, fmtVenueLine } from "../lib/format";
 import { getCategoryMeta, withRsvpCounts } from "../lib/mockEvents";
+import { AlreadyReportedError, type ReportReason } from "../lib/api/reports";
 import { useSession } from "../state/SessionContext";
 import { useToast } from "../state/ToastContext";
 
@@ -71,11 +74,14 @@ export default function EventDetailScreen() {
     userLocation,
     userId,
     deleteEvent,
+    reportEvent,
   } = useSession();
   const { showToast } = useToast();
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reporting, setReporting] = useState(false);
 
   const event = events.find((e) => e.id === id);
   // While the initial fetch is still in flight `events` is empty, so a
@@ -125,9 +131,9 @@ export default function EventDetailScreen() {
   const moreCount = Math.max(0, counts.going - nameChips.length);
   const showMoreLabel = event.attendees.length > 4 || status === "yes";
 
-  // Client-side only for now — TODO(Phase 4 follow-up): enforce this
-  // server-side too (a DB check/trigger on rsvps), which belongs with the
-  // later anti-spam/hardening pass, not this phase.
+  // Client-side gating for immediate UX feedback — the DB is the real
+  // source of truth (a trigger on rsvps rejects an over-capacity YES
+  // server-side too, see the anti_spam_hardening migration, Phase 14).
   const atCapacity = event.capacity != null && counts.going >= event.capacity;
   const yesBlocked = atCapacity && status !== "yes";
 
@@ -180,6 +186,26 @@ export default function EventDetailScreen() {
     navigator.clipboard?.writeText(shareUrl).catch(() => {});
     setShareOpen(false);
     showToast("Link copied");
+  };
+
+  const handleReport = async (reason: ReportReason) => {
+    if (reporting) return;
+    setReporting(true);
+    try {
+      await reportEvent(event.id, reason);
+      setReportOpen(false);
+      showToast("Reported — thanks, we'll review it");
+    } catch (err) {
+      if (err instanceof AlreadyReportedError) {
+        setReportOpen(false);
+        showToast(err.message);
+      } else {
+        console.error(err);
+        showToast("Couldn't submit your report — try again");
+      }
+    } finally {
+      setReporting(false);
+    }
   };
 
   return (
@@ -300,6 +326,17 @@ export default function EventDetailScreen() {
           </div>
         </div>
 
+        {!isOwner && (
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="flex items-center gap-1.5 self-start border-none bg-transparent p-0 font-sans text-[11.5px] font-semibold text-ink-dim"
+          >
+            <FlagIcon size={14} />
+            Report event
+          </button>
+        )}
+
         {event.website && (
           <a
             href={event.website}
@@ -405,6 +442,13 @@ export default function EventDetailScreen() {
         busy={deleting}
         onConfirm={handleDelete}
         onCancel={() => setDeleteOpen(false)}
+      />
+
+      <ReportSheet
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        onSubmit={handleReport}
+        submitting={reporting}
       />
     </div>
   );

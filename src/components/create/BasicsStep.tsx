@@ -22,6 +22,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
           value={form.title}
           onChange={(e) => onChange({ title: e.target.value })}
           placeholder="Sunrise Ruck: Basin Loop"
+          maxLength={120}
           className={inputClass}
         />
       </label>
@@ -31,6 +32,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
           value={form.venueName}
           onChange={(e) => onChange({ venueName: e.target.value })}
           placeholder="Basin Reservoir Trailhead"
+          maxLength={200}
           className={inputClass}
         />
       </label>
@@ -40,6 +42,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
           value={form.street}
           onChange={(e) => onChange({ street: e.target.value })}
           placeholder="1310 Washington Ave"
+          maxLength={200}
           className={inputClass}
         />
       </label>
@@ -50,6 +53,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             value={form.city}
             onChange={(e) => onChange({ city: e.target.value })}
             placeholder="Golden"
+            maxLength={100}
             className={inputClass}
           />
         </label>
@@ -59,6 +63,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             value={form.state}
             onChange={(e) => onChange({ state: e.target.value })}
             placeholder="CO"
+            maxLength={50}
             className={inputClass}
           />
         </label>
@@ -68,6 +73,7 @@ export function BasicsStep({ form, onChange }: BasicsStepProps) {
             value={form.zip}
             onChange={(e) => onChange({ zip: e.target.value })}
             placeholder="80401"
+            maxLength={20}
             className={inputClass}
           />
         </label>

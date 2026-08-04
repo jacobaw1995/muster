@@ -48,6 +48,7 @@ import {
   removeItinerary as apiRemoveItinerary,
 } from "../lib/api/itinerary";
 import { getProfile, upsertProfile } from "../lib/api/profiles";
+import { reportEvent as apiReportEvent, type ReportReason } from "../lib/api/reports";
 import { geocodeAddress } from "../lib/api/geocode";
 import {
   clearRsvp,
@@ -69,6 +70,7 @@ export type {
   OrgImpactTotals,
   PersonalImpactTotals,
   LocationStatus,
+  ReportReason,
 };
 export { apiGetEvent as getEventById };
 
@@ -206,12 +208,17 @@ interface SessionContextValue {
   /** Prompts the browser's geolocation permission (or reads a cached grant). Never throws — a denial or error just leaves `userLocation` null with `locationStatus` reflecting why. */
   requestLocation: () => Promise<void>;
 
-  /** Inserts a new event row and prepends it to `events`. Returns the created row (with its DB-generated id) so callers can immediately RSVP/add-to-itinerary against it. */
-  addEvent: (input: NewEventInput) => Promise<MusterEvent>;
+  /** Inserts a new event row (via the create-event Edge Function — see api/events.ts) and prepends it to `events`. `turnstileToken` is null when Turnstile isn't configured client-side (see components/Turnstile.tsx). Returns the created row (with its DB-generated id) so callers can immediately RSVP/add-to-itinerary against it. */
+  addEvent: (
+    input: NewEventInput,
+    turnstileToken: string | null,
+  ) => Promise<MusterEvent>;
   /** Updates an existing event in place (never creates a new row) — RLS restricts this to the event's own creator. Preserves the live-merged goingCount/maybeCount already in state, since editing never touches RSVPs. */
   updateEvent: (id: string, input: UpdateEventInput) => Promise<MusterEvent>;
   /** Deletes an event — RLS restricts this to its creator. rsvps/itinerary_items/impact_logs cascade server-side; this also prunes the id from local itinerary/rsvp state so nothing ghosts in the UI before the next reload. */
   deleteEvent: (id: string) => Promise<void>;
+  /** Inserts a report row (reporter_id = auth.uid()); the DB auto-hides the event once it accumulates enough distinct reports (Phase 14) — no local state change here, since a report never affects what the reporter themselves can see. Rejects with the friendly AlreadyReportedError message on a duplicate report. */
+  reportEvent: (eventId: string, reason: ReportReason) => Promise<void>;
   /** Toggles the given status on; tapping the already-active status clears it. Persists in the background. */
   setRsvp: (eventId: string, status: Exclude<RsvpStatus, null>) => void;
   addToItinerary: (eventId: string) => void;
@@ -467,11 +474,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
   }, [userId, isAnonymous, showToast]);
 
-  const addEvent = useCallback(async (input: NewEventInput) => {
-    const created = await apiCreateEvent(input);
-    setEvents((prev) => [created, ...prev]);
-    return created;
-  }, []);
+  const addEvent = useCallback(
+    async (input: NewEventInput, turnstileToken: string | null) => {
+      const created = await apiCreateEvent(input, turnstileToken);
+      setEvents((prev) => [created, ...prev]);
+      return created;
+    },
+    [],
+  );
 
   const updateEvent = useCallback(
     async (id: string, input: UpdateEventInput) => {
@@ -499,6 +509,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return next;
     });
   }, []);
+
+  const reportEvent = useCallback(
+    (eventId: string, reason: ReportReason) => apiReportEvent(eventId, reason),
+    [],
+  );
 
   const setRsvp = useCallback(
     (eventId: string, status: Exclude<RsvpStatus, null>) => {
@@ -791,6 +806,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       addEvent,
       updateEvent,
       deleteEvent,
+      reportEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,
@@ -836,6 +852,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       addEvent,
       updateEvent,
       deleteEvent,
+      reportEvent,
       setRsvp,
       addToItinerary,
       removeFromItinerary,

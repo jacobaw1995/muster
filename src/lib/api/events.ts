@@ -116,40 +116,32 @@ export interface NewEventInput {
 }
 
 /**
- * Always inserts with going/maybe at 0 — the creator's own RSVP (if any) is
- * a real rsvps row inserted separately, so it flows through the same
- * live-count path as everyone else's. `created_by` isn't passed — it
- * defaults to auth.uid() (see the auth_rls migration), which is also what
- * the insert RLS policy checks against.
+ * Routed through the create-event Edge Function (Phase 14), not a direct
+ * table insert — it verifies the Turnstile token server-side and captures
+ * the caller's IP for rate limiting before inserting. The function runs
+ * the actual insert with the caller's own forwarded JWT, so `created_by`
+ * still defaults to auth.uid() and the existing per-owner RLS policy still
+ * applies unchanged; this is a gate in front of that policy, not a
+ * replacement for it. Always inserts with going/maybe at 0 — the
+ * creator's own RSVP (if any) is a real rsvps row inserted separately, so
+ * it flows through the same live-count path as everyone else's.
+ *
+ * `turnstileToken` is null when VITE_TURNSTILE_SITE_KEY isn't configured
+ * (see components/Turnstile.tsx) — the Edge Function degrades the same
+ * way when its own secret is unset, so this never blocks local dev.
  */
-export async function createEvent(input: NewEventInput): Promise<MusterEvent> {
-  const { data, error } = await supabase
-    .from("events")
-    .insert({
-      title: input.title,
-      category: input.category,
-      organizer: input.organizer,
-      location: input.location,
-      street: input.street,
-      city: input.city,
-      state: input.state,
-      zip: input.zip,
-      latitude: input.latitude,
-      longitude: input.longitude,
-      date: input.date,
-      time: input.time,
-      duration_label: input.durationLabel,
-      duration_minutes: input.durationMinutes,
-      cost: input.cost,
-      capacity: input.capacity,
-      notes: input.notes,
-      website: input.website,
-      photo_url: input.photoUrl,
-    })
-    .select()
-    .single();
+export async function createEvent(
+  input: NewEventInput,
+  turnstileToken: string | null,
+): Promise<MusterEvent> {
+  const { data, error } = await supabase.functions.invoke("create-event", {
+    body: { ...input, turnstileToken },
+  });
   if (error) throw error;
-  return toMusterEvent(data, 0, 0);
+  if (!data?.ok) {
+    throw new Error(data?.error ?? "Couldn't post your event — try again");
+  }
+  return toMusterEvent(data.event, 0, 0);
 }
 
 /**
