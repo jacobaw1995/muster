@@ -14,7 +14,7 @@ import {
   type DateFilter,
   type EventFilters,
 } from "../lib/filterEvents";
-import { hadAuthRedirectHash, supabase } from "../lib/supabase";
+import { authRedirectError, hadAuthRedirect, supabase } from "../lib/supabase";
 import type { MusterEvent, RsvpStatus } from "../lib/mockEvents";
 import {
   createEvent as apiCreateEvent,
@@ -311,10 +311,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), []);
 
   // Seeded from a synchronous check of the URL at module-import time (see
-  // hadAuthRedirectHash) so it's accurate regardless of effect-subscription
+  // hadAuthRedirect) so it's accurate regardless of effect-subscription
   // timing. Cleared the first time we see a resulting permanent session, so
   // the "you just signed in" toast fires exactly once per redirect.
-  const awaitingRedirectReturn = useRef(hadAuthRedirectHash);
+  const awaitingRedirectReturn = useRef(hadAuthRedirect);
+  // Guards the auth-redirect-error toast below so a retryLoad() re-run of
+  // this effect doesn't re-show it — authRedirectError is a plain constant
+  // captured once at import time, unaffected by later re-runs.
+  const authErrorShown = useRef(false);
 
   // Auth bootstrap: restore an existing session, or establish a fresh
   // anonymous one so every visitor — signed in or not — has a real
@@ -323,12 +327,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Google/Apple) flow straight into state.
   useEffect(() => {
     let cancelled = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+    if (authRedirectError && !authErrorShown.current) {
+      authErrorShown.current = true;
+      showToast(`Sign-in failed: ${authRedirectError}`);
+    }
 
     async function bootstrap() {
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
       if (data.session) {
         setSession(data.session);
+        return;
+      }
+      if (hadAuthRedirect && !authRedirectError) {
+        // We just landed here via a magic-link or OAuth redirect and
+        // Supabase hasn't finished exchanging the hash token / PKCE `code`
+        // for a session yet — onAuthStateChange below will deliver it
+        // shortly. Calling signInAnonymously() here would create a brand
+        // new anonymous user and clobber the real sign-in before it lands,
+        // which is exactly the bug this whole branch exists to prevent.
+        // Only fall back to anonymous if the exchange genuinely never
+        // completes (network hiccup, reused/expired code, etc.).
+        fallbackTimer = setTimeout(async () => {
+          if (cancelled) return;
+          const { data: recheck } = await supabase.auth.getSession();
+          if (cancelled || recheck.session) return;
+          console.error(
+            "Auth redirect exchange never completed — falling back to an anonymous session.",
+          );
+          const { data: anon, error: anonError } =
+            await supabase.auth.signInAnonymously();
+          if (cancelled) return;
+          if (anonError) {
+            console.error(anonError);
+            setLoadError("Couldn't start a session. Check your connection.");
+            return;
+          }
+          setSession(anon.session);
+        }, 8000);
         return;
       }
       const { data: anon, error: anonError } =
@@ -347,25 +385,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      clearTimeout(fallbackTimer);
       setSession(newSession);
-      if (
-        awaitingRedirectReturn.current &&
-        newSession &&
-        !newSession.user.is_anonymous
-      ) {
+
+      if (!awaitingRedirectReturn.current || !newSession) return;
+
+      if (!newSession.user.is_anonymous) {
         awaitingRedirectReturn.current = false;
         // A pending name means this is a Sign Up completing — the
         // pending-profile-name effect below applies it and toasts
         // "Account created" itself once it lands. Otherwise this is a
-        // plain magic-link sign-in with nothing else to do.
+        // plain magic-link or OAuth sign-in with nothing else to do.
         if (!hasPendingProfileName()) {
           showToast("Signed in");
         }
+        return;
       }
+
+      // Still anonymous even though we just processed an auth redirect —
+      // a linkIdentity() upgrade can occasionally deliver its own event a
+      // beat before the session's is_anonymous claim reflects the merge.
+      // Double-check against the server once; if it disagrees, refresh so
+      // the account icon flips to initials without the user reloading.
+      supabase.auth.getUser().then(({ data: userRes }) => {
+        if (cancelled || !userRes.user || userRes.user.is_anonymous) return;
+        supabase.auth.getSession().then(({ data: fresh }) => {
+          if (!cancelled && fresh.session) setSession(fresh.session);
+        });
+      });
     });
 
     return () => {
       cancelled = true;
+      clearTimeout(fallbackTimer);
       subscription.unsubscribe();
     };
   }, [loadAttempt, showToast]);
