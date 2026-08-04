@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CheckEmailStep } from "../components/CheckEmailStep";
 import { CloseButton, ModalShell } from "../components/ModalShell";
@@ -25,12 +25,16 @@ const oauthButtonClass =
 // than rendering an empty divider.
 const SHOW_OAUTH_SECTION = GOOGLE_SIGNIN_ENABLED || APPLE_SIGNIN_ENABLED;
 
-type Step = "credentials" | "magicSent" | "resetSent";
+// Deliberately loose (not full RFC 5322) — just enough to catch an empty or
+// obviously-incomplete address before hitting the network, matching the
+// "guide, don't gate" spirit of the Forgot-password hint below.
+const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
+
+type Step = "credentials" | "resetSent";
 
 export default function SignInScreen() {
   const {
     userId,
-    requestMagicLink,
     signInWithPassword,
     requestPasswordReset,
     linkOAuth,
@@ -51,14 +55,15 @@ export default function SignInScreen() {
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
   const [signing, setSigning] = useState(false);
-  const [magicRequesting, setMagicRequesting] = useState(false);
   const [resetRequesting, setResetRequesting] = useState(false);
   const [credentialsError, setCredentialsError] = useState<string | null>(
     null,
   );
+  const [emailHint, setEmailHint] = useState<string | null>(null);
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(
     null,
   );
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   // Dormant since the Auth overhaul (see SHOW_OAUTH_SECTION above) — kept
   // working, not deleted, so flipping either feature flag back on just
@@ -101,8 +106,8 @@ export default function SignInScreen() {
     try {
       await signInWithPassword(trimmed, password);
       // Same-tab sign-in, no redirect — the bootstrap's own "Signed in"
-      // toast only fires for the redirect-driven paths (magic link,
-      // OAuth), so this path shows it directly.
+      // toast only fires for the redirect-driven paths (OAuth), so this
+      // path shows it directly.
       showToast("Signed in");
       navigate("/");
     } catch (err) {
@@ -123,24 +128,19 @@ export default function SignInScreen() {
     }
   };
 
-  const handleMagicLink = async () => {
-    const trimmed = email.trim();
-    if (!trimmed || magicRequesting) return;
-    setMagicRequesting(true);
-    try {
-      await requestMagicLink(trimmed);
-      setStep("magicSent");
-    } catch (err) {
-      console.error(err);
-      showToast("Couldn't send the link — check the address and try again.");
-    } finally {
-      setMagicRequesting(false);
-    }
-  };
-
+  // Deliberately never `disabled` on an empty/invalid email (that read as
+  // a dead, broken link — see SETUP.md) — instead it guides the user back
+  // to the email field with an inline hint, same "guide don't gate"
+  // pattern as the rest of this screen's validation.
   const handleForgotPassword = async () => {
     const trimmed = email.trim();
-    if (!trimmed || resetRequesting) return;
+    if (!trimmed || !EMAIL_PATTERN.test(trimmed)) {
+      setEmailHint(trimmed ? "Enter a valid email first" : "Enter your email first");
+      emailInputRef.current?.focus();
+      return;
+    }
+    if (resetRequesting) return;
+    setEmailHint(null);
     setResetRequesting(true);
     try {
       await requestPasswordReset(trimmed);
@@ -155,20 +155,7 @@ export default function SignInScreen() {
     }
   };
 
-  const handleResendMagicLink = () => requestMagicLink(email.trim());
   const handleResendReset = () => requestPasswordReset(email.trim());
-
-  if (step === "magicSent") {
-    return (
-      <ModalShell>
-        <CheckEmailStep
-          email={email.trim()}
-          onBack={() => setStep("credentials")}
-          onResend={handleResendMagicLink}
-        />
-      </ModalShell>
-    );
-  }
 
   if (step === "resetSent") {
     return (
@@ -266,15 +253,22 @@ export default function SignInScreen() {
           EMAIL
         </span>
         <input
+          ref={emailInputRef}
           value={email}
           onChange={(e) => {
             setEmail(e.target.value);
             setCredentialsError(null);
+            setEmailHint(null);
           }}
           type="email"
           placeholder="you@example.com"
           className="rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-semibold text-ink outline-none"
         />
+        {emailHint && (
+          <span className="font-sans text-[11px] font-semibold text-danger">
+            {emailHint}
+          </span>
+        )}
       </label>
 
       <PasswordField
@@ -291,7 +285,7 @@ export default function SignInScreen() {
       <button
         type="button"
         onClick={handleForgotPassword}
-        disabled={!email.trim() || resetRequesting}
+        disabled={resetRequesting}
         className="self-end font-sans text-[11.5px] font-semibold text-accent disabled:opacity-45"
       >
         {resetRequesting ? "Sending…" : "Forgot password?"}
@@ -310,23 +304,6 @@ export default function SignInScreen() {
         className="rounded-[12px] border-none bg-signal p-[15px] font-sans text-sm font-bold text-signal-on disabled:cursor-not-allowed disabled:opacity-45"
       >
         {signing ? "SIGNING IN…" : "SIGN IN"}
-      </button>
-
-      <div className="flex items-center gap-2.5">
-        <div className="h-px flex-1 bg-line" />
-        <span className="font-mono text-[10px] font-semibold text-ink-dim">
-          OR
-        </span>
-        <div className="h-px flex-1 bg-line" />
-      </div>
-
-      <button
-        type="button"
-        onClick={handleMagicLink}
-        disabled={!email.trim() || magicRequesting}
-        className={oauthButtonClass}
-      >
-        {magicRequesting ? "Sending…" : "Email me a link instead"}
       </button>
 
       <div className="flex justify-center gap-1.5 font-sans text-xs font-semibold">

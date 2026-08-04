@@ -33,7 +33,6 @@ import {
 import {
   isIdentityCollisionError,
   linkOrSignInWithOAuth,
-  requestMagicLink as apiRequestMagicLink,
   requestPasswordReset as apiRequestPasswordReset,
   signInWithPassword as apiSignInWithPassword,
   signUpWithPassword as apiSignUpWithPassword,
@@ -253,13 +252,6 @@ interface SessionContextValue {
     amounts: { bags: number; miles: number; people: number },
   ) => void;
 
-  /**
-   * Sends a magic-link sign-in email to the given address. An anonymous
-   * session upgrades in place (preserving auth.uid()); anyone else gets a
-   * normal magic-link sign-in. The browser comes back via the emailed link
-   * and the session is picked up automatically — see the bootstrap effect.
-   */
-  requestMagicLink: (email: string) => Promise<void>;
   /** Google/Apple — dormant since the Auth overhaul (see featureFlags.ts's GOOGLE_SIGNIN_ENABLED), kept for reversibility. Upgrades the anonymous session in place (or signs in normally if already permanent). Rejects without crashing if the provider isn't configured yet in the dashboard. */
   linkOAuth: (provider: OAuthProvider) => Promise<void>;
   /**
@@ -733,11 +725,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [events, showToast],
   );
 
-  const requestMagicLink = useCallback(
-    (email: string) => apiRequestMagicLink(email, isAnonymous),
-    [isAnonymous],
-  );
-
   const linkOAuth = useCallback(
     (provider: OAuthProvider) => linkOrSignInWithOAuth(provider, isAnonymous),
     [isAnonymous],
@@ -945,7 +932,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       removeFromItinerary,
       toggleItinerary,
       logImpact,
-      requestMagicLink,
       linkOAuth,
       signUpWithPassword,
       signInWithPassword,
@@ -997,7 +983,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       removeFromItinerary,
       toggleItinerary,
       logImpact,
-      requestMagicLink,
       linkOAuth,
       signUpWithPassword,
       signInWithPassword,

@@ -3,33 +3,6 @@ import { supabase } from "../supabase";
 export type OAuthProvider = "google" | "apple";
 
 /**
- * Sends a magic-link sign-in email. If the current session is anonymous,
- * this uses the "convert an anonymous user to a permanent one" flow
- * (`updateUser`) so clicking the link preserves the same auth.uid() —
- * existing RSVPs/itinerary/impact carry over with no migration. Otherwise
- * it's a normal `signInWithOtp`. Both redirect back to the current origin —
- * production in prod, localhost in dev — where the Supabase client's
- * `detectSessionInUrl` (see ../supabase.ts) picks the session up
- * automatically once the browser lands there.
- *
- * TODO(phone): SMS magic links are out of scope until a phone/SMS provider
- * is configured in the Supabase dashboard — email only for now.
- */
-export async function requestMagicLink(
-  email: string,
-  isAnonymous: boolean,
-): Promise<void> {
-  const emailRedirectTo = window.location.origin;
-  const { error } = isAnonymous
-    ? await supabase.auth.updateUser({ email }, { emailRedirectTo })
-    : await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo },
-      });
-  if (error) throw error;
-}
-
-/**
  * Anonymous session → `linkIdentity` upgrades it to permanent in place
  * (same auth.uid()). Already-permanent session → plain OAuth sign-in.
  * Both redirect the browser away; nothing else runs synchronously after a
@@ -94,10 +67,11 @@ export async function signInWithPassword(
 }
 
 /**
- * Sends a "reset your password" email. Still depends on email delivery
- * (see requestMagicLink above) — an accepted exception for a rare,
- * one-off flow, unlike day-to-day sign-in which no longer needs an inbox
- * at all now that password is primary.
+ * Sends a "reset your password" email — the sole recovery path now that
+ * "Email me a link instead" has been removed (email + password is the
+ * only sign-in method). Still depends on email delivery — an accepted
+ * exception for a rare, one-off flow, unlike day-to-day sign-in which
+ * needs no inbox at all.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
