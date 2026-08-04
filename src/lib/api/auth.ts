@@ -46,3 +46,24 @@ export async function linkOrSignInWithOAuth(
     : await supabase.auth.signInWithOAuth({ provider, options });
   if (error) throw error;
 }
+
+/**
+ * True when an error thrown by an auth call means the LOCAL session's user
+ * no longer exists server-side (e.g. an anonymous account cleaned up via
+ * the Supabase dashboard/SQL — see SETUP.md's moderation workflow). The
+ * JWT itself is still validly signed and unexpired, so nothing catches
+ * this until an operation like linkIdentity actually tries to use it —
+ * confirmed live: "AuthApiError: User from sub claim in JWT does not
+ * exist" on a Google-link attempt from a browser holding a session for an
+ * anonymous user that had since been deleted. Recovering means discarding
+ * the stale session and starting a fresh one (see SessionContext.signOut),
+ * not just showing a generic error — otherwise every retry fails the same
+ * way forever.
+ */
+export function isStaleSessionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.name === "AuthApiError" &&
+    /sub claim in jwt does not exist|user_not_found/i.test(err.message)
+  );
+}

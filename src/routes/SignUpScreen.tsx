@@ -5,6 +5,7 @@ import { CloseButton, ModalShell } from "../components/ModalShell";
 import { Wordmark } from "../components/Wordmark";
 import { AppleIcon, GoogleIcon } from "../components/icons";
 import { APPLE_SIGNIN_ENABLED } from "../lib/featureFlags";
+import { isStaleSessionError } from "../lib/api/auth";
 import {
   clearPendingProfileName,
   stashPendingProfileName,
@@ -16,7 +17,7 @@ const oauthButtonClass =
   "flex items-center justify-center gap-2.5 rounded-input border border-line bg-card p-[13px] font-sans text-[13px] font-bold text-ink disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function SignUpScreen() {
-  const { requestMagicLink, linkOAuth } = useSession();
+  const { userId, requestMagicLink, linkOAuth, signOut } = useSession();
   const { showToast } = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -29,15 +30,38 @@ export default function SignUpScreen() {
   const disabled = !name.trim() || !email.trim();
 
   const handleOAuth = async (provider: "google" | "apple") => {
+    // Guards the (rare) case of a click landing before the auth bootstrap's
+    // own anonymous session exists yet — without a session, linkIdentity
+    // has nothing to attach an identity to and fails; surfacing that
+    // plainly beats a silent no-op.
+    if (!userId) {
+      showToast("Still starting up — try again in a moment.");
+      return;
+    }
     setOauthLoading(provider);
     try {
       await linkOAuth(provider);
       // Success redirects the browser away — nothing else runs here.
     } catch (err) {
-      console.error(err);
-      showToast(
-        `${provider === "google" ? "Google" : "Apple"} sign-in isn't set up yet — try email.`,
-      );
+      console.error(`OAuth (${provider}) sign-in failed:`, err);
+      const label = provider === "google" ? "Google" : "Apple";
+      if (isStaleSessionError(err)) {
+        // The cached session's user no longer exists server-side, so
+        // every retry would fail the exact same way — recover by
+        // discarding it and starting a fresh anonymous session instead of
+        // just reporting the error.
+        try {
+          await signOut();
+          showToast("Your session needed a refresh — try again now.");
+        } catch (recoverErr) {
+          console.error("Stale-session recovery failed:", recoverErr);
+          showToast(`Couldn't start ${label} sign-in — try reloading the page.`);
+        }
+      } else {
+        const message =
+          err instanceof Error && err.message ? err.message : "Unknown error";
+        showToast(`Couldn't start ${label} sign-in: ${message}`);
+      }
     } finally {
       setOauthLoading(null);
     }
