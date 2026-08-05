@@ -1,6 +1,11 @@
 import type { ChangeEvent } from "react";
 import { PhotoIcon, XIcon } from "./icons";
 
+/** Upgrades a leading "http://" to "https://" — defensive display fix for events autofilled before the scrape-event/event-og https normalization shipped. Leaves blob:/data:/https:// URLs untouched. */
+function toSecureUrl(url: string): string {
+  return url.replace(/^http:\/\//i, "https://");
+}
+
 interface PhotoSlotProps {
   photoUrl: string | null;
   label?: string;
@@ -39,7 +44,11 @@ export function PhotoSlot({
   if (photoUrl) {
     return (
       <div className={`relative overflow-hidden ${className}`}>
-        <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={toSecureUrl(photoUrl)}
+          alt=""
+          className="h-full w-full object-cover"
+        />
         {fileInput}
         {onRemove && (
           <button

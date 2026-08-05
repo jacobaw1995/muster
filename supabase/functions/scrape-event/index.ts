@@ -273,6 +273,11 @@ function stripHtml(input: string, maxLength = 2000): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+/** Upgrades a leading "http://" to "https://" — most sites (GORUCK included) serve the same image over https, and link-preview renderers often refuse insecure images. Leaves https://, protocol-relative "//…", and data: URLs untouched. */
+function toSecureUrl(url: string): string {
+  return url.replace(/^http:\/\//i, "https://");
+}
+
 function extractJsonLdBlocks(html: string): unknown[] {
   const blocks: unknown[] = [];
   const re =
@@ -399,10 +404,10 @@ function extractLocation(node: Record<string, unknown>): {
 function extractImage(node: Record<string, unknown>): string | null {
   let image = node.image;
   if (Array.isArray(image)) image = image[0];
-  if (typeof image === "string") return image;
+  if (typeof image === "string") return toSecureUrl(image);
   if (image && typeof image === "object") {
     const url = (image as Record<string, unknown>).url;
-    if (typeof url === "string") return url;
+    if (typeof url === "string") return toSecureUrl(url);
   }
   return null;
 }
@@ -491,7 +496,7 @@ function fieldsFromOpenGraph(meta: Record<string, string>, website: string): Scr
   const fields = emptyFields(website);
   fields.title = meta["og:title"]?.trim() || null;
   fields.notes = meta["og:description"] ? stripHtml(meta["og:description"]) : null;
-  fields.imageUrl = meta["og:image"] || null;
+  fields.imageUrl = meta["og:image"] ? toSecureUrl(meta["og:image"]) : null;
   const price = meta["og:price:amount"] ?? meta["product:price:amount"];
   const currency = meta["og:price:currency"] ?? meta["product:price:currency"];
   fields.cost = price ? formatPrice(price, currency) : null;

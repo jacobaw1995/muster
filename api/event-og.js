@@ -30,6 +30,11 @@ function truncate(str, max) {
   return `${trimmed.slice(0, max - 1).trimEnd()}…`;
 }
 
+/** Upgrades a leading "http://" to "https://" — link-preview renderers (iMessage etc.) often refuse insecure images, and every source we've seen serves the same image over https too. Leaves https://, protocol-relative "//…", and data: URLs untouched. */
+function toSecureUrl(url) {
+  return url.replace(/^http:\/\//i, "https://");
+}
+
 function fmtDateLabel(iso) {
   if (!iso) return "";
   const d = new Date(`${iso}T00:00:00`);
@@ -76,8 +81,10 @@ function buildMeta(event, origin, canonicalUrl) {
   return {
     title: `${event.title} — Muster`,
     description,
-    // photo_url is already an absolute Supabase Storage URL.
-    image: event.photo_url || defaultMeta.image,
+    // photo_url is already an absolute Supabase Storage URL — upgraded to
+    // https since some (e.g. autofilled-from-link events) can still store
+    // an http:// URL and many link-preview renderers refuse to load those.
+    image: event.photo_url ? toSecureUrl(event.photo_url) : defaultMeta.image,
     url: canonicalUrl,
   };
 }
